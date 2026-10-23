@@ -5,7 +5,7 @@
 *.tar.gz
 *.tgz
 # 仅忽略仓库根目录下的构建输出 —— 早期写成非锚定的 bin/ ，
-# 把 luci-app-sysupgrade/root/usr/bin/ 也忽略了，导致 CLI 从未进仓库（CI 抓到）
+# 把 luci-app-rtfwupgrade/root/usr/bin/ 也忽略了，导致 CLI 从未进仓库（CI 抓到）
 /build_dir/
 /staging_dir/
 /bin/
