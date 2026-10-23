@@ -24,6 +24,20 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            - name: 校验 tag 与 PKG_VERSION 一致
+              # 发版 tag 必须恰好是 v${PKG_VERSION}（例如 v0.1.0_alpha1）；
+              # 两者不一致会让 Release 上的版本号与包内版本对不上。
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  pkg=$(sed -n 's/^PKG_VERSION:=//p' luci-app-rtfwupgrade/Makefile | head -1 | tr -d '[:space:]')
+                  want="v${pkg}"
+                  if [ "${GITHUB_REF_NAME}" != "$want" ]; then
+                    echo "tag 与 Makefile PKG_VERSION 不一致：tag=${GITHUB_REF_NAME}，期望 ${want}"
+                    exit 1
+                  fi
+                  echo "tag 与 PKG_VERSION 一致：${GITHUB_REF_NAME}"
+                  node tests/version-check.mjs
+
             - name: 安装依赖
               run: |
                   sudo apt-get update -qq
@@ -41,7 +55,7 @@ jobs:
             - name: 放入包并准备 feeds
               run: |
                   cd sdk
-                  cp -r "$GITHUB_WORKSPACE/luci-app-sysupgrade" package/
+                  cp -r "$GITHUB_WORKSPACE/luci-app-rtfwupgrade" package/
                   # 拉全套 feeds：官方 i18n 机制（luci.mk 为 po/ 下每个语言生成
                   # luci-i18n-<app>-<lang> 包）需要 po2lmo，而 po2lmo 由 luci-base 构建，
                   # 后者依赖 liblua（packages feed）
@@ -50,22 +64,22 @@ jobs:
                   make defconfig
 
             - name: 编译
-              # 同时产出主包与 luci-i18n-sysupgrade-<lang> 语言包（官方机制）
-              run: cd sdk && make package/luci-app-sysupgrade/compile V=s
+              # 同时产出主包与 luci-i18n-rtfwupgrade-<lang> 语言包（官方机制）
+              run: cd sdk && make package/luci-app-rtfwupgrade/compile V=s
 
             - name: 收集并校验产物
               run: |
                   mkdir -p out
-                  find sdk/bin -name '*sysupgrade*' -type f -exec cp {} out/ \;
+                  find sdk/bin -name '*rtfwupgrade*' -type f -exec cp {} out/ \;
                   ls -l out
                   # 核对主包内容（.ipk 是 gzip 包裹的 tar，内层 data.tar.gz）
                   python3 tools/inspect-package.py out/*
                   # 语言包由 luci.mk 生成（官方机制），这里确认它确实产出了
-                  ls out/ | grep -q 'luci-i18n-sysupgrade' || { echo "缺少 luci-i18n-sysupgrade 语言包"; exit 1; }
+                  ls out/ | grep -q 'luci-i18n-rtfwupgrade' || { echo "缺少 luci-i18n-rtfwupgrade 语言包"; exit 1; }
 
             - uses: actions/upload-artifact@v4
               with:
-                  name: luci-app-sysupgrade-${{ matrix.format }}
+                  name: luci-app-rtfwupgrade-${{ matrix.format }}
                   path: out/*
                   if-no-files-found: error
 

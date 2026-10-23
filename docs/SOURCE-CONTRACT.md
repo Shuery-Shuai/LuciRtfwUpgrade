@@ -12,15 +12,15 @@
 
 ## profiles.json 用到的字段
 
-| 字段                                     | 语义                                               |
-| ---------------------------------------- | -------------------------------------------------- |
-| `target`                                 | `mediatek/filogic`                                 |
-| `version_number`                         | `SNAPSHOT` 或 `25.12.2`                            |
-| `version_code`                           | `r<rev>-<sha>`（release/snapshot 都有）            |
-| `source_date_epoch`                      | 源码时间戳，等于构建时使用的 `SOURCE_DATE_EPOCH`   |
-| `profiles.<name>.supported_devices`      | 本机 `board_name`（`bananapi,bpi-r4`）在此列表中   |
-| `profiles.<name>.images[]`               | `type` / `filesystem` / `name` / `size` / `sha256` |
-| `profiles.<name>.file_size_limits.image` | 镜像体积上限，刷写前校验（M2）                     |
+| 字段                                     | 语义                                                       |
+| ---------------------------------------- | ---------------------------------------------------------- |
+| `target`                                 | `mediatek/filogic`                                         |
+| `version_number`                         | `SNAPSHOT` 或 `25.12.2`                                    |
+| `version_code`                           | `r<rev>-<sha>`（release/snapshot 都有）                    |
+| `source_date_epoch`                      | 源码时间戳，等于构建时使用的 `SOURCE_DATE_EPOCH`           |
+| `profiles.<name>.supported_devices`      | 本机 `board_name`（`bananapi,bpi-r4`）在此列表中           |
+| `profiles.<name>.images[]`               | `type` / `filesystem` / `name` / `size` / `sha256`         |
+| `profiles.<name>.file_size_limits.image` | 镜像体积上限，**下载前**校验（超出即拒绝下载，不是刷写前） |
 
 注意：`git_commit` **只在 snapshot 的 profiles.json 里存在**（release 没有），因此不能作为判据。
 
@@ -36,9 +36,17 @@
 ## 两种 layout
 
 ```
-official           <base>[/<system>]/{snapshots|releases/<ver>}/targets/<target>/<subtarget>/
-bin_targets_root   <base>[/<system>]/targets/<target>/<subtarget>/          # bin/targets 裸镜像
+official   OpenWRT/ImmortalWRT 官方发布页结构（root/releases/release/targets）：
+           <base>[/<system>]/{snapshots|releases/<ver>}/targets/<target>/<subtarget>/
+           快照位于 root/snapshots/targets，发行版位于 root/releases/<ver>/targets。
+
+default    默认编译输出目录结构（root/targets，即 bin/targets 裸镜像）：
+           <base>[/<system>]/targets/<target>/<subtarget>/
 ```
+
+`official` 的通道目录由 `<base>/.versions.json` 发现；`default` 没有版本目录层级，
+直接指向 `bin/targets` 的镜像输出。旧配置中的布局别名只在迁移映射里识别，新配置只写
+`official` / `default`。
 
 ## 给 rtfw / immortalwrt.shuery 的三条对齐要求
 

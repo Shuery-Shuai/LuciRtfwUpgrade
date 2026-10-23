@@ -13,7 +13,7 @@
 ## 分支与发布
 
 - 单 `main` 分支 + 短生命周期特性分支，PR 必须过 CI。
-- 发布用 tag：`vX.Y.Z`，与 `luci-app-sysupgrade/Makefile` 的 `PKG_VERSION` **保持一致**；
+- 发布用 tag：`vX.Y.Z`，与 `luci-app-rtfwupgrade/Makefile` 的 `PKG_VERSION` **保持一致**；
   每次发版递增 `PKG_RELEASE`（同版本重打包时）。
 - 产物发布在 GitHub Release（24.10 SDK 出 `.ipk`，25.12/main SDK 出 `.apk`）。
 
@@ -29,8 +29,15 @@
 
 ### ucode（后端）
 
-- 模块用顶层 `return { ... }` 导出；**模块间用 dotted require**（`require('lucisysupgrade.util')`），
-  库文件必须放在 `root/usr/share/ucode/lucisysupgrade/` 下（ucode 默认搜索路径是 `/usr/share/ucode`）。
+- 模块用顶层 `return { ... }` 导出；**模块间用 dotted require**（`require('rtfwupgrade.util')`），
+  库文件必须放在 `root/usr/share/ucode/rtfwupgrade/` 下（ucode 默认搜索路径是 `/usr/share/ucode`）。
+- **`rtfwupgrade` 作为内部标识保持单 token，不要改成 `rtfw-upgrade`**：ucode 的 `require()`
+  只接受字母/数字/下划线（`ucode/src/lib.c` 里 `!isalnum(*q) && *q != '_'` 直接判失败），
+  带连字符会让 CLI 与 rpcd 插件一起加载失败（真机 A/B 实测：只差一个连字符，
+  带连字符的目录报 `No module named …`）。包名/CLI/菜单/视图**可以**带连字符，
+  但本项目统一用合成词，与官方 `luci-app-attendedsysupgrade`（包名带连字符、内部名
+  `attendedsysupgrade`）同构；OpenWrt 的连字符惯例只用于「两个真词之间」
+  （`package-manager` / `argon-config` / `ddns-go`），而 `rtfw` 是缩写。
 - 已踩过的坑，别再踩：
     - 没有 `isNaN()`：用 `n != n` 判定 NaN（`int('abc')` 返回 NaN 且 `type` 是 `double`）。
     - **函数声明不会提升**：`function a()` 调用后面定义的 `function b()` 会报
@@ -48,32 +55,34 @@
 
 ### i18n
 
-- 源码里的用户可见字符串一律用**英文 msgid** 并包 `_()`，中文放**包内** `luci-app-sysupgrade/po/zh_Hans/lucisysupgrade.po`
-  （官方约定：po 在包内，构建时由 luci.mk 为每个语言生成 `luci-i18n-sysupgrade-<lang>` 语言包）；
+- 源码里的用户可见字符串一律用**英文 msgid** 并包 `_()`，中文放**包内** `luci-app-rtfwupgrade/po/zh_Hans/rtfwupgrade.po`
+  （官方约定：po 在包内，构建时由 luci.mk 为每个语言生成 `luci-i18n-rtfwupgrade-<lang>` 语言包）；
   menu.d 的标题同样走这套（LuCI 会用应用的 catalog 翻译菜单）。
 - 正式构建由 `luci.mk` 调 **po2lmo** 生成语言包；po2lmo 由 luci-base 提供，
   所以构建需要完整 feeds（`feeds update -a && feeds install -a`），不能只装 luci feed。
 - **真机装机脚本**（开发流程，不走 SDK）用 `tools/po2lmo.py` 本地生成，并按运行时语言码同时装
-  `lucisysupgrade.zh-cn.lmo` 与 `lucisysupgrade.zh_Hans.lmo`（新旧命名兼容）。
-- 语言包命名由 luci.mk 映射：`po/zh_Hans` → 包名 `luci-i18n-sysupgrade-zh-cn`。
+  `rtfwupgrade.zh-cn.lmo` 与 `rtfwupgrade.zh_Hans.lmo`（新旧命名兼容）。
+- 语言包命名由 luci.mk 映射：`po/zh_Hans` → 包名 `luci-i18n-rtfwupgrade-zh-cn`。
 
 ### shell
 
-- POSIX `sh`，`shellcheck` 零告警（配置见 `.shellcheckrc`）。
+- POSIX `sh`，`shellcheck` 零告警（配置见 `.shellcheckrc`）。覆盖范围必须包括
+  `tests/*.sh`、`tools/*.sh` 与**包内** `luci-app-rtfwupgrade/root/etc/uci-defaults/*`
+  （CI 与 `tests/all.sh` 都按这个范围跑；装机脚本同样会被安装到设备上执行，不能漏检）。
 - **`$VAR` 后面紧跟中文/全角字符时必须写 `${VAR}`**：否则 shell 会把多字节字符当成变量名的一部分，
   报 `HOST）: unbound variable` 这类莫名错误（已踩过两次：`$HOST）`、`$IMG 大小`）。
 
 ### LuCI 前端
 
-- `htdocs/luci-static/resources/view/sysupgrade/*.js`，`useTabs` 由 prettier 统一。
-- 只通过 rpcd ubus 对象 `lucisysupgrade` 访问后端，不在前端拼命令。
+- `htdocs/luci-static/resources/view/rtfwupgrade/*.js`，`useTabs` 由 prettier 统一。
+- 只通过 rpcd ubus 对象 `rtfwupgrade` 访问后端，不在前端拼命令。
 - **浏览器端没有 `sprintf`**：用 `'%s %s'.format(a, b)`（LuCI 的 `String.prototype.format`）。
   这个错误在 Node 静态检查里也能暴露 —— 先跑 `node tests/render-check.mjs`。
 - `_()` **不消费占位符**：写 `_('共 %d 条').format(n)`，不要写 `_('共 %d 条', n)`。
   Node 桩里也必须如实保留占位符，否则断言会假失败（已踩过一次）。
-- 引用其它模块用 `'require sysupgrade.format as fmt';`：`as` 别名受支持
+- 引用其它模块用 `'require rtfwupgrade.format as fmt';`：`as` 别名受支持
   （luci.js 的正则 `/^require[ \t]+(\S+)(?:[ \t]+as[ \t]+([a-zA-Z_]\S*))?$/`），
-  不写 `as` 时变量名是模块路径把非字母数字换成下划线（`sysupgrade_format`）。
+  不写 `as` 时变量名是模块路径把非字母数字换成下划线（`rtfwupgrade_format`）。
 
 ## 改代码时的纪律
 
@@ -85,15 +94,22 @@
 
 - `python3 tools/inspect-package.py <产物>`：**离线核对构建产物**（.ipk 是 gzip 包裹的 tar，
   内层 data.tar.gz；.apk 是 apk v3 的 ADB 格式，需设备侧用 `tests/verify-apk.sh` 深验）。
-  主包应含代码/视图/配置/菜单/ACL 且**不含 lmo**；`luci-i18n-sysupgrade-<lang>` 语言包应恰好含一个 lmo。
+  主包应含代码/视图/配置/菜单/ACL 且**不含 lmo**；`luci-i18n-rtfwupgrade-<lang>` 语言包应恰好含一个 lmo。
 - `node tests/i18n-check.mjs`：比对代码/menu.d 用到的 msgid 与 po 条目，缺翻译即失败（会列出文件与 msgid）。
   它专治一类静默问题：msgid 写得不一致时界面残留英文，而静态检查与渲染检查都发现不了
   （`_()` 在 Node 桩里是恒等函数）。
 - `node tests/render-check.mjs`：**无浏览器渲染检查**。按 luci.js 的规则把视图的
   `'require … as …'` 指令绑成参数（正则与 luci.js 一致），用桩跑 `load()` / `render()` / 事件处理器，
   fixture 取自真机 `ubus call` 的真实输出。它能抓住 `sprintf is not defined` 这类**只有浏览器才暴露**的错误。
+- `node tests/consistency-check.mjs`：仓库一致性检查（**静态、无设备、无网络**）：
+  旧标识/旧布局名残留、Makefile 的 `+ucode-mod-digest` 与 `/etc/config/rtfwupgrade`、
+  scheduler 的 cron 行（`mkdir -p /tmp/rtfwupgrade` + `/usr/bin/rtfwupgrade.sh`）、
+  菜单标题与其中文翻译、CLI 路径与 lmo 命名。旧标识只允许出现在精确白名单的迁移代码里。
+- `tests/scheduler-unit.uc`：CI 的 ucode 容器作业运行的行为回归 —— 同步时块外 nginx-util/acme
+  行必须保留、新旧受管块同时移除、关闭调度只移除自己的块（防止 `strip_block()` 返回数组被误当文本）。
 - `tests/run-on-device.sh [ssh别名]`：把包内文件同步到路由器 `/tmp`，做全量 `ucode -c` 编译检查，
-  并跑 `version / sources / status / check` 三条真机场景（官方源、自有构建站、rtfw）。
+  并跑 `version / sources / status / check` 多组真机场景（用实际默认源名
+  `immortalwrt_official` / `openwrt_official` / `rtfw_immortalwrt`，不再使用已删除的旧别名）。
 - `tests/install-on-device.sh [ssh别名]`：装机（含 i18n 编译），`--uninstall` 卸载。
 - `tests/scheduler.sh [ssh别名]`：真机验证定时任务 —— 写入/幂等/块内被手改后自愈/关闭时只移除标记块，
   并断言**块外内容一字不动**（含你原有的 nginx-util 与 acme 两行）；结束时用备份还原。
@@ -102,16 +118,19 @@
   会临时改动配置并在结束时用备份还原。
 - `tests/m2-state-machine.sh [ssh别名]`：真机验证下载状态机的 5 条分支。**不真下载**（不受 CDN 速度影响）：
   用 `check` 拿候选镜像的 url/size/sha256、用 HEAD 拿 etag/last-modified，再伪造「部分文件 + 状态」，
-  断言续传命中、ETag 变化拒绝续传、体积不符判失败、成功路径写完成事件、cleanup 杀进程组。原说明 ——
-  续传命中/ETag 变化拒绝续传/sha256 不匹配判失败。做法是构造 `download.json` 与部分文件后调 ubus 断言。
+  断言续传命中、ETag 变化拒绝续传、体积不符判失败、成功路径写完成事件、cleanup 杀进程组。
 - macOS 打包务必带 `COPYFILE_DISABLE=1 tar --no-xattrs`，否则 `._*` 元数据文件会混进归档。
 - 逻辑改动的验收标准：在真机上跑通上述场景，且结论与预期一致（见脚本内注释）。
 
 ## 里程碑
 
-|     | 内容                                                                                      | 状态               |
-| --- | ----------------------------------------------------------------------------------------- | ------------------ |
-| M1  | 检测闭环：源抽象、两种 layout、判据、CLI、rpcd、LuCI 概览页                               | 已完成并在真机验证 |
-| M2  | 下载与校验（`curl -C -` 续传、`profiles.json.images[].sha256`、`file_size_limits.image`） | 已完成并在真机验证 |
-| M3  | 刷写（`sysupgrade -k`）、三态刷写日志、webhook                                            | **暂缓**           |
-| M4  | 定时检测（`/etc/crontabs/root` 标记块）、ipk+apk 双产物 CI                                | 待做               |
+|     | 内容                                                                                                 | 状态               |
+| --- | ---------------------------------------------------------------------------------------------------- | ------------------ |
+| M1  | 检测闭环：源抽象、两种 layout、判据、CLI、rpcd、LuCI 概览页                                          | 已完成并在真机验证 |
+| M2  | 下载与校验（`curl -C -` 续传、`profiles.json.images[].sha256`、`file_size_limits.image` 下载前校验） | 已完成并在真机验证 |
+| M3  | 刷写（`sysupgrade -k`）、三态刷写日志、刷写类 webhook                                                | **暂缓**           |
+| M4  | 定时检测（`/etc/crontabs/root` 标记块）、ipk+apk 双产物 CI                                           | 已落地             |
+
+M3 的 webhook 说明：下载完成事件 `download_done` 已在 M2 实现；检测 webhook 本次新增
+（判定为 `update` / `rebuild` 时投递 `check_update`，检测失败投递 `check_failed`，其余不打扰）。M3 只欠刷写与三态刷写日志，未实现的档位 2 会在事件日志里
+明确记录「刷写能力未实现」，不会静默假装完成。

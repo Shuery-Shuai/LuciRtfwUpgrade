@@ -27,8 +27,8 @@ jobs:
                   done
                   exit $fail
 
-            # 首次推送前未能在本机跑通 prettier（npm registry 不可达），
-            # 因此先设为非阻塞；本地执行 `npx prettier@3 --write "**/*.{js,json,yml,md}"` 后改为阻塞。
+            # prettier 是阻塞检查：格式不一致会让 CI 直接失败，本地先跑
+            # `npx --yes prettier@3 --write "**/*.{js,json,yml,md}"` 再提交。
             - name: 版本一致性（Makefile ↔ version.uc）
               run: node tests/version-check.mjs
 
@@ -38,18 +38,22 @@ jobs:
             - name: 视图渲染检查（Node 桩，无浏览器）
               run: node tests/render-check.mjs
 
+            - name: 仓库一致性（旧标识/布局/CLI/菜单/lmo）
+              run: node tests/consistency-check.mjs
+
             - name: prettier
-              continue-on-error: true
               run: npx --yes prettier@3 --check "**/*.{js,json,yml,md}"
 
             - name: shellcheck
-              run: shellcheck tests/*.sh
+              # 包内 uci-defaults 没有 .sh 后缀，但会装到设备上执行，必须一并检查
+              run: shellcheck tests/*.sh tools/*.sh luci-app-rtfwupgrade/root/etc/uci-defaults/*
 
             - name: 包目录文件必须都已入库
-              # 踩过的坑：.gitignore 写成非锚定的 bin/，把 root/usr/bin/lucisysupgrade 忽略了，
+              # 踩过的坑：.gitignore 写成非锚定的 bin/，把 root/usr/bin/rtfwupgrade.sh 忽略了，
               # 于是本地构建（从工作区拷贝）有 CLI、CI 构建（checkout）没有 —— 产物缺主程序。
+              # 只关心「被忽略」(`!!`) 与「未跟踪」(`??`) 两类：已暂存的改动本来就会进仓库。
               run: |
-                  stray=$(git status --ignored --short -- luci-app-sysupgrade | grep -v '^ M' || true)
+                  stray=$(git status --ignored --short -- luci-app-rtfwupgrade | grep -E '^(\?\?|!!)' || true)
                   if [ -n "$stray" ]; then
                     echo "这些文件在包目录里但不在仓库中（CI 会漏掉）："
                     echo "$stray"
@@ -71,9 +75,18 @@ jobs:
                   docker run --rm -v "$PWD:/src:ro" openwrt/rootfs:x86_64-25.12-SNAPSHOT sh -c '
                     apk update >/dev/null 2>&1 && apk add --no-cache ucode >/dev/null 2>&1
                     fail=0
-                    for f in $(find /src/luci-app-sysupgrade -type f \( -name "*.uc" -o -path "*/usr/bin/lucisysupgrade" -o -path "*/rpcd/ucode/lucisysupgrade" \)); do
+                    for f in $(find /src/luci-app-rtfwupgrade -type f \( -name "*.uc" -o -path "*/usr/bin/rtfwupgrade.sh" -o -path "*/rpcd/ucode/rtfwupgrade" \)); do
                       ucode -c "$f" > /dev/null || { echo "FAIL $f"; fail=1; }
                     done
-                    echo "检查了 $(find /src/luci-app-sysupgrade -type f \( -name "*.uc" -o -path "*/usr/bin/lucisysupgrade" -o -path "*/rpcd/ucode/lucisysupgrade" \) | wc -l) 个 ucode 文件"
+                    echo "检查了 $(find /src/luci-app-rtfwupgrade -type f \( -name "*.uc" -o -path "*/usr/bin/rtfwupgrade.sh" -o -path "*/rpcd/ucode/rtfwupgrade" \) | wc -l) 个 ucode 文件"
                     exit $fail
+                  '
+
+            - name: scheduler 行为回归（容器，块外内容必须保留）
+              # 踩过的坑：strip_block() 返回数组，连续剥新旧两块时若直接传数组，
+              # sync() 会清空 crontab 的块外内容；这里用真实 uci/fs 模块跑行为断言。
+              run: |
+                  docker run --rm -v "$PWD:/src:ro" openwrt/rootfs:x86_64-25.12-SNAPSHOT sh -c '
+                    apk update >/dev/null 2>&1 && apk add --no-cache ucode ucode-mod-fs ucode-mod-uci >/dev/null 2>&1 || { echo "ucode modules install failed"; exit 2; }
+                    ucode -L /src/luci-app-rtfwupgrade/root/usr/share/ucode /src/tests/scheduler-unit.uc
                   '
