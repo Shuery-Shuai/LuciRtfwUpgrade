@@ -495,9 +495,7 @@ return view.extend({
 					fmt.callout(
 						'',
 						_('Downloading…'),
-						_(
-							'The file goes to /tmp (RAM). Flashing is a separate step and only runs after an explicit confirmation.'
-						)
+						_('The file goes to /tmp (RAM), so it does not survive a reboot.')
 					)
 				);
 				nodes.push(
@@ -609,7 +607,7 @@ return view.extend({
 					E(
 						'div',
 						{ class: 'rtfw-muted' },
-						_('Downloads the candidate image to /tmp and verifies its sha256. Flashing is a separate step.')
+						_('Downloads the candidate image to /tmp and verifies its sha256 against the source.')
 					)
 				);
 				nodes.push(

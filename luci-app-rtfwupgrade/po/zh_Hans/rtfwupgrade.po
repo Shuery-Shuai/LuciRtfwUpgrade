@@ -176,8 +176,8 @@ msgstr "设置已保存。"
 msgid "Where settings live"
 msgstr "配置存放位置"
 
-msgid "Everything is stored in /etc/config/rtfwupgrade, which is preserved by sysupgrade -k together with the rest of the configuration."
-msgstr "全部配置存放在 /etc/config/rtfwupgrade，会随 sysupgrade -k 与其他配置一起保留。"
+msgid "Everything is stored in /etc/config/rtfwupgrade. Configuration is kept across an upgrade by default, and this app flashes with -k -c so the installed-package list and every changed file under /etc/ are carried over too."
+msgstr "全部配置存放在 /etc/config/rtfwupgrade。升级默认就保留配置；本应用刷写时带 -k -c，连已装包列表和 /etc 下所有改动过的文件一起保留。"
 
 # M2 下载
 msgid "Detection and image download are read-only. Flashing is a separate step and only runs after an explicit confirmation."
@@ -186,8 +186,8 @@ msgstr "只读检测 + 镜像下载。刷写是独立的一步，只有明确确
 msgid "Image download"
 msgstr "镜像下载"
 
-msgid "Downloads the candidate image to /tmp and verifies its sha256. Flashing is a separate step."
-msgstr "把候选镜像下载到 /tmp 并校验 sha256。刷写是独立的一步。"
+msgid "Downloads the candidate image to /tmp and verifies its sha256 against the source."
+msgstr "把候选镜像下载到 /tmp，并与源站公布的 sha256 核对。"
 
 msgid "Download image"
 msgstr "下载镜像"
@@ -195,8 +195,8 @@ msgstr "下载镜像"
 msgid "Downloading…"
 msgstr "下载中…"
 
-msgid "The file goes to /tmp (RAM). Flashing is a separate step and only runs after an explicit confirmation."
-msgstr "文件落在 /tmp（内存）。刷写是独立的一步，只有明确确认后才会执行。"
+msgid "The file goes to /tmp (RAM), so it does not survive a reboot."
+msgstr "文件落在 /tmp（内存），重启后不会保留。"
 
 msgid "resumed"
 msgstr "（续传）"
@@ -344,8 +344,8 @@ msgstr "检测与通知"
 msgid "Save settings"
 msgstr "保存设置"
 
-msgid "Detection, source and download events, newest first. Stored in RAM (/tmp), so a reboot clears them."
-msgstr "检测、源与下载事件，最新的在前。写在内存（/tmp）里，重启即清空。"
+msgid "Detection, source, download and flash events, newest first. Stored in RAM (/tmp), so a reboot clears them; a pending flash result is kept separately until it is confirmed."
+msgstr "检测、源、下载与刷写事件，最新的在前。写在内存（/tmp）里，重启即清空；待确认的刷写结果另存一份，直到确认为止。"
 
 msgid "Refresh"
 msgstr "刷新"
@@ -537,11 +537,14 @@ msgstr "未写入"
 msgid "Out of sync"
 msgstr "不一致"
 
-msgid "Wanted"
-msgstr "期望"
+msgid "Diagnostics"
+msgstr "诊断信息"
 
-msgid "Applied"
-msgstr "实际"
+msgid "Wanted: %s"
+msgstr "期望：%s"
+
+msgid "Applied: %s"
+msgstr "实际：%s"
 
 msgid "Crontab path: %s"
 msgstr "crontab 路径：%s"

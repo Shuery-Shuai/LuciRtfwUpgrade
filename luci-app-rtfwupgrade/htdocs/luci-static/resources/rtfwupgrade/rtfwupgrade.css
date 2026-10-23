@@ -267,7 +267,7 @@
 	border-left-color: #dc2626;
 }
 
-/* 定时任务状态块：徽标 + 说明 + 期望/实际两行堆叠 */
+/* 定时任务状态块：默认只显示徽标 + 一句说明；细节收进 details */
 .rtfw-schedule-state {
 	margin-bottom: 0.5rem;
 }
@@ -276,14 +276,19 @@
 	margin-right: 0.35rem;
 }
 
-.rtfw-schedule-line {
-	margin: 0.35rem 0;
+/* 排查用的折叠区：标题低调，展开后才显示路径与两行 cron */
+.rtfw-details {
+	margin-top: 0.4rem;
 }
 
-.rtfw-schedule-label {
+.rtfw-details > summary {
 	font-size: 0.78rem;
 	opacity: 0.75;
-	margin-bottom: 0.15rem;
+	cursor: pointer;
+}
+
+.rtfw-details > summary:hover {
+	opacity: 1;
 }
 
 .rtfw-schedule-value {

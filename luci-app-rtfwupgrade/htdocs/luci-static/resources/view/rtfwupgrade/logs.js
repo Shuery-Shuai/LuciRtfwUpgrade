@@ -57,7 +57,9 @@ return view.extend({
 			E(
 				'p',
 				{ class: 'rtfw-muted' },
-				_('Detection, source and download events, newest first. Stored in RAM (/tmp), so a reboot clears them.')
+				_(
+					'Detection, source, download and flash events, newest first. Stored in RAM (/tmp), so a reboot clears them; a pending flash result is kept separately until it is confirmed.'
+				)
 			),
 
 			E('div', { class: 'rtfw-toolbar' }, [

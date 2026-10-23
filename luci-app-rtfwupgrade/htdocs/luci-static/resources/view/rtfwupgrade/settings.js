@@ -252,7 +252,7 @@ return view.extend({
 				'',
 				_('Where settings live'),
 				_(
-					'Everything is stored in /etc/config/rtfwupgrade, which is preserved by sysupgrade -k together with the rest of the configuration.'
+					'Everything is stored in /etc/config/rtfwupgrade. Configuration is kept across an upgrade by default, and this app flashes with -k -c so the installed-package list and every changed file under /etc/ are carried over too.'
 				)
 			)
 		]);
@@ -669,26 +669,26 @@ return view.extend({
 			detail = _('The managed block differs from the current schedule; save the settings to rewrite it.');
 		}
 
-		// 两行 cron 都很长，并排放在固定宽度表格里会挤成一行看不清；
-		// 改成上下堆叠：标签一行、命令独占整行并允许横向滚动。
-		function line(label, value) {
-			return E('div', { class: 'rtfw-schedule-line' }, [
-				E('div', { class: 'rtfw-schedule-label' }, label),
-				E('div', { class: 'rtfw-schedule-value' }, value || '-')
-			]);
-		}
-
-		return [
-			fmt.callout(tone, _('Scheduled task status'), [
-				E('div', { class: 'rtfw-schedule-state' }, [
-					E('span', { class: 'rtfw-badge rtfw-tone-' + (tone || 'muted') }, state),
-					E('span', { class: 'rtfw-muted' }, ' ' + detail)
-				]),
-				line(_('Wanted'), wanted),
-				line(_('Applied'), applied),
-				E('div', { class: 'rtfw-schedule-path' }, _('Crontab path: %s').format(sch.path || '-'))
+		// 用户只需要知道「成了没有」。两行 cron 与路径属于排查用的细节：
+		// 只在没同步时给出一行可复制的命令，其余折叠进 details，避免默认界面充斥长命令。
+		var nodes = [
+			E('div', { class: 'rtfw-schedule-state' }, [
+				E('span', { class: 'rtfw-badge rtfw-tone-' + (tone || 'muted') }, state),
+				E('span', { class: 'rtfw-muted' }, ' ' + detail)
 			])
 		];
+
+		// 只有「该写却没写」时才把期望的命令直接摆出来——那时用户需要它来核对或手动补。
+		if (wanted && !sch.in_sync) nodes.push(E('div', { class: 'rtfw-schedule-value' }, wanted));
+
+		var diag = [E('div', { class: 'rtfw-schedule-path' }, _('Crontab path: %s').format(sch.path || '-'))];
+		if (wanted) diag.push(E('div', { class: 'rtfw-schedule-path' }, _('Wanted: %s').format(wanted)));
+		if (applied && applied !== wanted)
+			diag.push(E('div', { class: 'rtfw-schedule-path' }, _('Applied: %s').format(applied)));
+
+		nodes.push(E('details', { class: 'rtfw-details' }, [E('summary', {}, _('Diagnostics')), E('div', {}, diag)]));
+
+		return [fmt.callout(tone, _('Scheduled task status'), nodes)];
 	},
 
 	buildScheduleExtra: function () {

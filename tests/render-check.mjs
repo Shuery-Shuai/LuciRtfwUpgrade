@@ -279,8 +279,6 @@ const VIEWS = [
 					'Scheduled task',
 					'Scheduled task status',
 					'Written to crontab',
-					'Wanted',
-					'Applied',
 					'Time (24h)',
 					'Edit',
 					'Delete',
@@ -291,6 +289,8 @@ const VIEWS = [
 					'Default build output directory structure: root/targets'
 				],
 				expect: [
+					// 折叠区的标题始终可见，细节才收起
+					'Diagnostics',
 					'Identifier',
 					'auto-generated when empty',
 					'internal UCI section name',
@@ -299,6 +299,11 @@ const VIEWS = [
 					'It is the UCI section name and cannot be changed.'
 				],
 				requireClass: 'rtfw-table',
+				// 用户默认只看到「成了没有」：Wanted 那行长命令收进 Diagnostics 折叠区，
+				// 展开前不该出现（否则默认界面被超长 cron 占满）。
+				// Applied 只在它与期望不一致时才输出——同步状态下本就不该有这一行。
+				expectFolded: ['Wanted'],
+				expectAbsent: ['Applied'],
 				after: async function (view) {
 					// 快速添加：缺必填 → 警告；填好 → 成功
 					await view.handleQuickAdd();
@@ -430,10 +435,55 @@ for (const spec of VIEWS) {
 			const data = await view.load();
 			const tree = view.render(data);
 
+			// 折叠区（<details> 子树）里的文案不算「展开前可见」。
+			const textOutsideDetails = (function () {
+				const out = [];
+				(function walk(node) {
+					if (node === null || node === undefined) return;
+					if (typeof node === 'string' || typeof node === 'number') return out.push(String(node));
+					if (Array.isArray(node)) return node.forEach(walk);
+					if (typeof node !== 'object') return;
+					if (node.tag === 'details') return;
+					Object.values(node.attrs || {}).forEach(v => {
+						if (typeof v === 'string' || typeof v === 'number') out.push(String(v));
+					});
+					(node.children || []).forEach(walk);
+				})(tree);
+				return out;
+			})();
+
 			if (c.expectPre) {
-				const pre = collectText(tree).join(' ');
+				const pre = textOutsideDetails.join(' ');
 				const miss = c.expectPre.filter(x => !pre.includes(x));
 				if (miss.length) throw new Error('展开前缺少文案: ' + miss.join(', '));
+			}
+
+			// 折叠区（<details> 内）的文案在展开前不该出现在默认界面上。
+			// 只收 <details> 子树，不把整棵树当「折叠内容」，否则断言恒为假。
+			if (c.expectFolded) {
+				const folded = [];
+				(function walkFolded(node) {
+					if (!node || typeof node !== 'object') return;
+					if (Array.isArray(node)) return node.forEach(walkFolded);
+					if (node.tag === 'details') return collectText(node, folded);
+					(node.children || []).forEach(walkFolded);
+				})(tree);
+				const foldedText = folded.join(' ');
+				const pre = textOutsideDetails.join(' ');
+				for (const s of c.expectFolded) {
+					if (foldedText.includes(s)) continue;
+					throw new Error('折叠区缺少文案（应放进 details）: ' + s);
+				}
+				// 同一份文案不得同时裸露在折叠区之外
+				const leaked = c.expectFolded.filter(s => pre.includes(s));
+				if (leaked.length) throw new Error('本该折叠的文案泄漏到默认界面: ' + leaked.join(', '));
+			}
+
+			// 同步状态下不该出现的文案（例如与期望相同的 Applied 行）
+			if (c.expectAbsent) {
+				const all = collectText(tree).join(' ');
+				const present = c.expectAbsent.filter(s => all.includes(s));
+				if (present.length) throw new Error('不该出现的文案仍在界面上: ' + present.join(', '));
 			}
 
 			let extraTree = null;

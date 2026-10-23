@@ -127,11 +127,14 @@ jobs:
 
             - name: 回下载验证（清单必须能直接校验）
               # 把刚发布的附件重新下载到扁平目录，用发布的 SHA256SUMS 校验 ——
-              # 这是对「用户拿到的东西」的端到端确认
+              # 这是对「用户拿到的东西」的端到端确认。
+              # 注意：cd 到 /tmp/verify 后 gh 没有 git 仓库上下文，会报
+              # 「failed to run git: fatal: not a git repository」（alpha2 上踩到）。
+              # 显式 --repo 指定目标仓库，不再依赖当前目录的 .git。
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   mkdir -p /tmp/verify && cd /tmp/verify
-                  gh release download "${GITHUB_REF_NAME}" --dir .
+                  gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --dir .
                   ls -l
                   sha256sum -c SHA256SUMS
