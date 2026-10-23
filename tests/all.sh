@@ -10,6 +10,29 @@ fail=0
 step() { echo; echo "### $1"; }
 try() { "$@" || { echo "  ↑ 上一步失败"; fail=1; }; }
 
+# 刷写行为回归（M3）：把当前工作区的 ucode 库投到设备 /tmp，用 -L 指过去跑
+# tests/flash-unit.uc —— 与 run-on-device.sh 同一套路，测的是本地代码而不是
+# 设备上已安装的那份。
+#
+# 为什么不能放在主机侧：flash.uc 要 OpenWrt 的 ucode 运行时（fs/uci/digest 模块、
+# gmtime）以及只有设备上才有的 /usr/lib/os-release 与 /tmp/sysinfo，主机侧跑不了。
+# 容器侧另由 CI 的「刷写行为回归」一步覆盖，这里在真机上验真实发行版/真实 board_name。
+#
+# 普通用户 /etc 不可写 -> 刷写行为断言自动 SKIP、纯配置断言照跑，不算失败；
+# 全程用假 sysupgrade（PATH 前置），不会真刷设备。
+flash_unit() {
+	host="$1"
+	dest=/tmp/rtfwupgrade-unit-lib
+	COPYFILE_DISABLE=1 tar --no-xattrs -C "$ROOT/luci-app-rtfwupgrade/root/usr/share/ucode" -czf - rtfwupgrade \
+		| ssh "$host" "rm -rf '$dest' && mkdir -p '$dest' && tar -xzf - -C '$dest'" || return 1
+	COPYFILE_DISABLE=1 tar --no-xattrs -C "$ROOT/tests" -czf - flash-unit.uc \
+		| ssh "$host" "tar -xzf - -C /tmp" || return 1
+	ssh "$host" "PATH=/tmp/rtfwupgrade-unit/bin:\$PATH ucode -L '$dest' /tmp/flash-unit.uc"
+	code=$?
+	ssh "$host" "rm -rf '$dest' /tmp/flash-unit.uc"
+	return "$code"
+}
+
 echo "======== 主机侧 ========"
 
 step "版本一致性（Makefile ↔ version.uc）"
@@ -70,6 +93,18 @@ if [ "$HOST" != "-" ]; then
 
 	step "下载状态机（5+1 分支）"
 	try sh "$ROOT/tests/m2-state-machine.sh" "$HOST"
+
+	# 刷写行为回归（M3）：
+	#   必须在真机上跑，而不是主机侧 —— flash.uc 依赖 OpenWrt 的 ucode 运行时
+	#   （fs/uci/digest 模块、gmtime、以及只有设备上才有的 /usr/lib/os-release
+	#   与 /tmp/sysinfo），主机侧没有 ucode 跑不了。
+	#   容器侧另有 CI 的一步（.github/workflows/ci.yml「刷写行为回归」）覆盖，
+	#   这里在真机上再跑一遍，验的是真实发行版与真实 board_name 下的行为。
+	#   普通用户 /etc 不可写 -> 刷写行为断言自动 SKIP，纯配置断言照跑，不算失败；
+	#   传 -r 用 root 才会把全部断言都跑到（仍是假 sysupgrade，绝不真刷）。
+	step "刷写状态机（护栏/boot_check/命令形态）"
+	# 直接调用而不是走 try()：try() 是 "$@" 间接调用，shellcheck 看不到，会误报 SC2329
+	flash_unit "$HOST" || { echo "  ↑ 上一步失败"; fail=1; }
 fi
 
 echo

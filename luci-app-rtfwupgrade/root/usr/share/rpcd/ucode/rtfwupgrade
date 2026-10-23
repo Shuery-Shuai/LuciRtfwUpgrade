@@ -2,8 +2,9 @@
 'use strict';
 
 // rpcd ubus 对象：rtfwupgrade
-// 只读：version / status / sources / check / download_status
+// 只读：version / status / sources / check / download_status / flash_status
 // 写：  set_active / set_options / source_add / source_set / source_del / download / cancel / cleanup
+//       / flash / flash_clear
 
 let util = require('rtfwupgrade.util');
 let local = require('rtfwupgrade.local');
@@ -11,6 +12,7 @@ let config = require('rtfwupgrade.config');
 let check = require('rtfwupgrade.check');
 let state = require('rtfwupgrade.state');
 let download = require('rtfwupgrade.download');
+let flash = require('rtfwupgrade.flash');
 let eventlog = require('rtfwupgrade.eventlog');
 let scheduler = require('rtfwupgrade.scheduler');
 let uci = require('uci');
@@ -65,6 +67,19 @@ function do_check(req) {
 		conf: conf,
 		source: arg(req, 'source'),
 		channel: arg(req, 'channel')
+	});
+}
+
+// 前端传的是字符串（ubus 参数一律字符串），'1' 与布尔 true 都视为放行跨发行版护栏。
+// force 不做 trim：布尔 true 进 trim 会被转成字符串，反而丢掉原类型。
+function do_flash(req) {
+	let a = req?.args ?? req ?? {};
+	let force = a.force;
+	return flash.start({
+		source: arg(req, 'source'),
+		channel: arg(req, 'channel'),
+		force: (force == '1' || force === true),
+		trigger: 'manual'
 	});
 }
 
@@ -278,6 +293,9 @@ return {
 		check: { args: { source: '', channel: '' }, call: do_check },
 		download_status: { call: function () { return download.status(); } },
 		download: { args: { source: '', channel: '' }, call: function (req) { return download.start(arg(req, 'source'), arg(req, 'channel')); } },
+		flash: { args: { source: '', channel: '', force: '' }, call: do_flash },
+		flash_status: { call: function () { return flash.status(); } },
+		flash_clear: { call: function () { return flash.clear(); } },
 		cancel: { call: function () { return download.cancel(); } },
 		cleanup: { call: function () { return download.cleanup(); } },
 		set_active: { args: { source: '' }, call: do_set_active },

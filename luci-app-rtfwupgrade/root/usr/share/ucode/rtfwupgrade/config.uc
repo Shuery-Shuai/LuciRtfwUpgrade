@@ -14,6 +14,8 @@ const CONFIG = 'rtfwupgrade';
 const LAYOUTS = [ 'official', 'default' ];
 const LAYOUT_ALIASES = { bin_targets_root: 'default' };
 const SCHEDULE_KINDS = [ 'off', 'daily', 'weekly', 'monthly' ];
+// 无人值守只有三档：0 只检测、1 自动下载、2 自动下载并刷写。
+const UNATTENDED_LEVELS = [ 0, 1, 2 ];
 // 注意：ucode 的 substr 按字节切，中文字符 3 字节 —— 取星期必须用数组映射
 const WEEKDAY_LABELS = [ '一', '二', '三', '四', '五', '六', '日' ];
 
@@ -25,6 +27,7 @@ function normalize_layout(layout) {
 function defaults() {
 	return {
 		unattended: 0,
+		flash_allow_cross_distro: 0,
 		schedule_kind: 'daily',
 		schedule_time: '04:00',
 		schedule_weekday: 1,
@@ -37,6 +40,25 @@ function defaults() {
 			{ name: 'rtfw_immortalwrt', label: 'RTFW 聚合站（immortalwrt）', url: 'https://rtfw.shuery.lssa.fun', layout: 'official', system: 'immortalwrt' }
 		]
 	};
+}
+
+// 档位只认 0/1/2：手改配置写进来的 99 不能被当成「全自动」，一律落回 0。
+// ucode 没有 isNaN()，NaN 用 n != n 判断（int() 转换失败返回 NaN）。
+function normalize_unattended(v) {
+	let n = int(v ?? 0);
+	if (n != n)
+		return 0;
+
+	return (index(UNATTENDED_LEVELS, n) >= 0) ? n : 0;
+}
+
+// 0/1 开关；只把非零整数视为开启，其它一律关闭。
+function normalize_switch(v) {
+	let n = int(v ?? 0);
+	if (n != n)
+		return 0;
+
+	return (n == 0) ? 0 : 1;
 }
 
 function section_name(s) {
@@ -85,7 +107,9 @@ function load() {
 		active = length(sources) ? sources[0].name : '';
 
 	return {
-		unattended: int(g.unattended ?? 0),
+		unattended: normalize_unattended(g.unattended),
+		// 跨发行版放行只是**手工路径的持久默认**；自动刷写路径永不使用 force。
+		flash_allow_cross_distro: normalize_switch(g.flash_allow_cross_distro),
 		schedule_kind: trim(g.schedule_kind ?? 'daily'),
 		schedule_time: trim(g.schedule_time ?? '04:00'),
 		schedule_weekday: int(g.schedule_weekday ?? 1),
@@ -150,5 +174,8 @@ return {
 	defaults: defaults,
 	load: load,
 	active: active,
-	unattended_label: unattended_label
+	unattended_label: unattended_label,
+	UNATTENDED_LEVELS: UNATTENDED_LEVELS,
+	normalize_unattended: normalize_unattended,
+	normalize_switch: normalize_switch
 };

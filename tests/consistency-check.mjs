@@ -144,6 +144,76 @@ function main() {
 		expect(`CLI 提供「${word}」`, cliText.includes(word));
 	}
 
+	// ── M3 刷写能力 ────────────────────────────────────────────────────────
+	// 这组断言防的是「功能还在、入口没了」：子命令在第 398 行附近的 case 分派里，
+	// 删掉一个 case 不会让任何编译或渲染检查报错，只有真机上敲命令才会发现。
+	// 因此这里要求出现完整的 case 语句，而不是只搜关键词（'flash' 会命中 flash-status）。
+	const FLASH = 'luci-app-rtfwupgrade/root/usr/share/ucode/rtfwupgrade/flash.uc';
+	const INITD = 'luci-app-rtfwupgrade/root/etc/init.d/rtfwupgrade';
+	const KEEPD = 'luci-app-rtfwupgrade/root/lib/upgrade/keep.d/rtfwupgrade';
+	const ACL = 'luci-app-rtfwupgrade/root/usr/share/rpcd/acl.d/luci-app-rtfwupgrade.json';
+
+	for (const cmd of ['flash', 'flash-status', 'flash-clear']) {
+		expect(`CLI 提供子命令「${cmd}」`, cliText.includes(`case '${cmd}':`));
+	}
+	for (const flag of ['--yes', '--force', '--boot-check']) {
+		expect(`CLI 提供参数「${flag}」`, cliText.includes(flag));
+	}
+
+	// 文件存在性：flash.uc 是 M3 的全部逻辑，init.d 是开机闭环的唯一入口
+	// （uci-defaults 是一次性的，重启后不会再跑，所以不能拿它顶替），
+	// keep.d 决定状态文件能否跨过重启。
+	expect('刷写模块文件为 ucode/rtfwupgrade/flash.uc', exists(FLASH));
+	expect('开机钩子为 etc/init.d/rtfwupgrade', exists(INITD));
+	expect('keep.d 登记为 lib/upgrade/keep.d/rtfwupgrade', exists(KEEPD));
+
+	// keep.d 里必须正好是状态文件：登记错了，刷写前写的 pending 会在重启时丢掉，
+	// boot_check 就永远看不到它，刷写结果再也无法确认。
+	const keepd = read(KEEPD);
+	expect('keep.d 内容含 /etc/rtfwupgrade.flash.json', keepd.includes('/etc/rtfwupgrade.flash.json'));
+
+	const flashText = read(FLASH);
+
+	// 命令只有一种形态：sysupgrade -k -c <绝对路径>。
+	// -n 会关掉保留配置（官方脚本默认 SAVE_CONFIG=1，-n 才清空），
+	// 一旦有人"优化"成 -n，刷完设备的配置就没了 —— 这是最贵的一类回归。
+	expect('flash.uc 含 sysupgrade -k -c', flashText.includes('sysupgrade -k -c'));
+	expect(
+		'flash.uc 不含 sysupgrade -n（-n 会丢弃保留配置）',
+		// 注释里出现「-n 才关闭」是说明文字，不算：只在代码行（去掉整行注释）里查
+		!flashText
+			.split('\n')
+			.filter(line => !line.trim().startsWith('//'))
+			.some(line => /sysupgrade[^'"]*-n\b/.test(line)),
+		'代码行里出现了 sysupgrade -n'
+	);
+
+	// 起进程必须放在落盘之后：反过来的话，两条语句之间断电就再也查不到这次刷写。
+	// 用行号比较，因为顺序本身才是要保护的东西。
+	const lines = flashText.split('\n');
+	const saveAt = lines.findIndex(line => line.includes('if (!save_state(st))'));
+	const runAt = lines.findIndex(line => line.includes("util.run(sprintf('setsid sh -c %s"));
+	expect(
+		'flash.uc 先落盘 flash-pending 再起 sysupgrade',
+		saveAt >= 0 && runAt >= 0 && saveAt < runAt,
+		`save_state@${saveAt} sysupgrade@${runAt}`
+	);
+
+	// init.d：START=95（在 network/procd 之后、boot 收尾之前，否则读不到 os-release）
+	// 且必须调 flash-status --boot-check，否则刷写结果永远不会被确认。
+	const initd = read(INITD);
+	expect('init.d 含 START=95', /^START=95$/m.test(initd));
+	expect('init.d 调 flash-status --boot-check', initd.includes('flash-status --boot-check'));
+
+	// ACL：漏登记会让 LuCI 界面上按钮点了没反应（ubus 拒绝），而 CLI 却是好的，
+	// 只在网页上复现 —— 所以必须在这里兜住。
+	const acl = JSON.parse(read(ACL))['luci-app-rtfwupgrade'];
+	const aclRead = acl?.read?.ubus?.rtfwupgrade ?? [];
+	const aclWrite = acl?.write?.ubus?.rtfwupgrade ?? [];
+	expect('ACL read 含 flash_status', aclRead.includes('flash_status'));
+	expect('ACL write 含 flash', aclWrite.includes('flash'));
+	expect('ACL write 含 flash_clear', aclWrite.includes('flash_clear'));
+
 	// 5) 菜单标题与中文翻译
 	const menu = JSON.parse(read('luci-app-rtfwupgrade/root/usr/share/luci/menu.d/luci-app-rtfwupgrade.json'));
 	const rootMenu = menu['admin/system/rtfwupgrade/'];

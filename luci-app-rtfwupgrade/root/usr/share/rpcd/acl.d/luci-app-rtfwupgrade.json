@@ -4,7 +4,16 @@
 		"read": {
 			"uci": ["rtfwupgrade"],
 			"ubus": {
-				"rtfwupgrade": ["status", "sources", "check", "version", "download_status", "logs", "schedule_status"]
+				"rtfwupgrade": [
+					"status",
+					"sources",
+					"check",
+					"version",
+					"download_status",
+					"flash_status",
+					"logs",
+					"schedule_status"
+				]
 			}
 		},
 		"write": {
@@ -17,6 +26,8 @@
 					"source_set",
 					"source_del",
 					"download",
+					"flash",
+					"flash_clear",
 					"cancel",
 					"cleanup",
 					"logs_clear"

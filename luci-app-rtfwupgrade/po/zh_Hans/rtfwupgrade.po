@@ -180,14 +180,14 @@ msgid "Everything is stored in /etc/config/rtfwupgrade, which is preserved by sy
 msgstr "全部配置存放在 /etc/config/rtfwupgrade，会随 sysupgrade -k 与其他配置一起保留。"
 
 # M2 下载
-msgid "Read-only detection plus image download. Nothing is flashed: this version stops after verifying the sha256."
-msgstr "只读检测 + 镜像下载。不会刷写：本版本在 sha256 校验通过后就停下。"
+msgid "Detection and image download are read-only. Flashing is a separate step and only runs after an explicit confirmation."
+msgstr "只读检测 + 镜像下载。刷写是独立的一步，只有明确确认后才会执行。"
 
 msgid "Image download"
 msgstr "镜像下载"
 
-msgid "Downloads the candidate image to /tmp and verifies its sha256. Nothing is flashed."
-msgstr "把候选镜像下载到 /tmp 并校验 sha256，不会刷写。"
+msgid "Downloads the candidate image to /tmp and verifies its sha256. Flashing is a separate step."
+msgstr "把候选镜像下载到 /tmp 并校验 sha256。刷写是独立的一步。"
 
 msgid "Download image"
 msgstr "下载镜像"
@@ -195,8 +195,8 @@ msgstr "下载镜像"
 msgid "Downloading…"
 msgstr "下载中…"
 
-msgid "The file goes to /tmp (RAM). Flashing is not implemented yet, so nothing else happens when it finishes."
-msgstr "文件落在 /tmp（内存），刷写尚未实现，因此下载完成后不会有后续动作。"
+msgid "The file goes to /tmp (RAM). Flashing is a separate step and only runs after an explicit confirmation."
+msgstr "文件落在 /tmp（内存）。刷写是独立的一步，只有明确确认后才会执行。"
 
 msgid "resumed"
 msgstr "（续传）"
@@ -213,8 +213,8 @@ msgstr "取消失败："
 msgid "Downloaded and verified"
 msgstr "已下载并通过校验"
 
-msgid "The sha256 matches the one published by the source. This version does not flash anything."
-msgstr "sha256 与源站公布的一致。本版本不会刷写。"
+msgid "The sha256 matches the one published by the source. The image is ready to flash."
+msgstr "sha256 与源站公布的一致，镜像已可用于刷写。"
 
 msgid "Download failed"
 msgstr "下载失败"
@@ -318,8 +318,8 @@ msgid "Disabled"
 msgstr "关闭"
 
 # 面向用户的文案（去掉开发术语）
-msgid "0: detect and notify only. 1: also download automatically. 2: also flash automatically (not available yet)."
-msgstr "0：仅检测并通知；1：额外自动下载；2：额外自动刷写（尚未提供）。"
+msgid "0: detect and notify only. 1: also download automatically. 2: also flash automatically, but only when the verdict is an update; a rebuild is downloaded and left alone, and the automatic path never flashes across distributions."
+msgstr "0：仅检测并通知；1：额外自动下载；2：额外自动刷写，但只在判定为「可升级」时才刷——判定为重编时只下载不刷写，自动路径也绝不跨发行版刷写。"
 
 msgid "POST JSON when update events happen. Leave empty to disable."
 msgstr "发生更新事件时以 POST JSON 通知，留空即关闭。"
@@ -577,3 +577,87 @@ msgstr "还没有定时任务输出。"
 
 msgid "Scheduled-task log: %s"
 msgstr "定时任务日志：%s"
+# M3 刷写（前端 → rpcd → flash.uc）
+msgid "Flash firmware"
+msgstr "刷写固件"
+
+msgid "Target version"
+msgstr "目标版本"
+
+msgid "Target build id"
+msgstr "目标构建"
+
+msgid "Image file"
+msgstr "镜像文件"
+
+msgid "Image size"
+msgstr "镜像体积"
+
+msgid "This cannot be undone"
+msgstr "此操作不可逆"
+
+msgid "Flashing reboots the router: the network drops until it is back, and everything written to /tmp is lost. Existing configuration is kept, because sysupgrade runs with -k -c."
+msgstr "刷写会重启设备：重启期间断网，/tmp 里的内容全部丢失。系统刷写用 -k -c 执行，因此现有配置会保留。"
+
+msgid "I confirm: flash this image and reboot the router."
+msgstr "我确认：刷写这个镜像并重启设备。"
+
+msgid "Allow cross-distribution flashing (force)"
+msgstr "允许跨发行版刷写（force）"
+
+msgid "Cross-distribution change"
+msgstr "跨发行版更换"
+
+msgid "Flash now"
+msgstr "立即刷写"
+
+msgid "The command is: %s"
+msgstr "将执行命令：%s"
+
+msgid "No blocking problem found so far."
+msgstr "目前没有发现阻断问题。"
+
+msgid "Flashing is blocked"
+msgstr "刷写被阻断"
+
+msgid "Flashing is blocked: fix the problems listed above."
+msgstr "刷写被阻断：请先解决上面列出的问题。"
+
+msgid "Flashing failed: "
+msgstr "刷写失败："
+
+msgid "A flash is already pending. Reboot the router and let the boot check confirm it first."
+msgstr "已有一笔刷写待重启确认。请先重启设备，让开机检查确认结果。"
+
+msgid "Run a check first: nothing tells which image this device should be flashed with."
+msgstr "请先做一次检测：现在没有任何依据能确定该刷哪个镜像。"
+
+msgid "The image has not been downloaded and verified yet."
+msgstr "镜像还没有下载并通过校验。"
+
+msgid "This source belongs to a different distribution. Tick the cross-distribution override first."
+msgstr "该源属于另一个发行版。请先勾选跨发行版放行。"
+
+msgid "Waiting for reboot confirmation"
+msgstr "等待重启确认"
+
+msgid "The image was written and sysupgrade was started. The state is confirmed after the router reboots."
+msgstr "镜像已写入、刷写已发起。设备重启后才会确认这次刷写的结果。"
+
+msgid "Flash confirmed after reboot"
+msgstr "重启后已确认刷写成功"
+
+msgid "The build id after reboot matches the target: %s"
+msgstr "重启后的构建标识与目标一致：%s"
+
+msgid "Flash not confirmed"
+msgstr "刷写未被确认"
+
+msgid "After reboot the build id is %s while the target was %s."
+msgstr "重启后的构建标识是 %s，而目标是 %s。"
+
+msgid "Clear flash state"
+msgstr "清除刷写状态"
+
+msgid "Flash state cleared."
+msgstr "刷写状态已清除。"

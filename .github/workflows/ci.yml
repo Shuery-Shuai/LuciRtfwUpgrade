@@ -82,6 +82,18 @@ jobs:
                     exit $fail
                   '
 
+            - name: 刷写行为回归（容器，护栏/boot_check/命令形态）
+              # 踩过的坑：dsn 里把 sysupgrade 的命令形态写成 -n 会把用户配置清空；
+              # 落盘与起进程顺序颠倒则断电后再也查不到这次刷写。这里用假 sysupgrade
+              # 垫片（PATH 前置，绝不真刷）+ 假 curl fixture（不走网络）跑行为断言。
+              # 容器里 /etc 可写，ensure_state_writable() 会通过，全部断言执行。
+              run: |
+                  docker run --rm -v "$PWD:/src:ro" openwrt/rootfs:x86_64-25.12-SNAPSHOT sh -c '
+                    apk update >/dev/null 2>&1 && apk add --no-cache ucode ucode-mod-fs ucode-mod-uci ucode-mod-digest >/dev/null 2>&1 || { echo "ucode modules install failed"; exit 2; }
+                    PATH=/tmp/rtfwupgrade-unit/bin:$PATH \
+                      ucode -L /src/luci-app-rtfwupgrade/root/usr/share/ucode /src/tests/flash-unit.uc
+                  '
+
             - name: scheduler 行为回归（容器，块外内容必须保留）
               # 踩过的坑：strip_block() 返回数组，连续剥新旧两块时若直接传数组，
               # sync() 会清空 crontab 的块外内容；这里用真实 uci/fs 模块跑行为断言。

@@ -191,7 +191,7 @@ return view.extend({
 					})
 				),
 				_(
-					'0: detect and notify only. 1: also download automatically. 2: also flash automatically (not available yet).'
+					'0: detect and notify only. 1: also download automatically. 2: also flash automatically, but only when the verdict is an update; a rebuild is downloaded and left alone, and the automatic path never flashes across distributions.'
 				)
 			),
 

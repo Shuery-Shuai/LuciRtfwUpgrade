@@ -89,6 +89,15 @@
 - **脚本化改动必须带断言**：用 python/sed 批量改文件时，每个 `replace`/`sed` 后都要断言"确实改了"。
   已经踩过两次静默失败：一次是 `--apply` 参数解析分支没插进去（搜索串多带了一个 `else`），
   一次是 po 清理误删了 menu.d 用的 `Overview`。改完必须跑对应检查（`tests/*.sh`、`node tests/*.mjs`）。
+- **新增包内文件后必须先 `git add`**：`tools/build-local.sh` 与 CI 都用 `git archive HEAD` 取源码，
+  **未提交的新文件会被静默排除**，本地照常出货、CI 产物却缺文件。本仓库历史上就因此让 CLI 主程序
+  一直没进过仓库（`.gitignore` 写了非锚定的 `bin/`）。CI 有「包目录文件必须都已入库」的断言兜底
+  （`git status --ignored --short -- luci-app-rtfwupgrade`，命中 `??` 或 `!!` 即失败），
+  但本地 `tools/build-local.sh` 会把这个疏漏完全掩盖掉 —— 别依赖 CI 才发现。
+- **刷写路径的护栏是不可协商的**：任何新增的刷写入口（CLI、rpcd、cron、将来别的什么）都必须先过
+  `flash.guards()` 再谈执行，不允许复制一份判断或用「已经检查过了」跳过它。护栏的顺序与
+  阻断语义是安全边界（镜像未校验、判定不是 update/rebuild、跨发行版、上一笔未结案），
+  少一条就是把设备刷成砖的入口。自动路径额外禁用 force。
 
 ## 测试
 
@@ -107,6 +116,12 @@
   菜单标题与其中文翻译、CLI 路径与 lmo 命名。旧标识只允许出现在精确白名单的迁移代码里。
 - `tests/scheduler-unit.uc`：CI 的 ucode 容器作业运行的行为回归 —— 同步时块外 nginx-util/acme
   行必须保留、新旧受管块同时移除、关闭调度只移除自己的块（防止 `strip_block()` 返回数组被误当文本）。
+- `tests/flash-unit.uc`：刷写路径的**行为级回归**，与 `tests/scheduler-unit.uc` 同法跑
+  （`ucode -L luci-app-rtfwupgrade/root/usr/share/ucode tests/flash-unit.uc`）。它**绝不真刷**：
+  只断言护栏的阻断/放行组合、`flash-pending` 的落盘顺序（落盘失败必须不刷）、
+  `boot_check()` 的两支收敛与「不重复上报」。因为要写 `/etc/rtfwupgrade.flash.json`，
+  它需要可写的 `/etc`；在只读环境下会**自动 skip**（以退出码区分 skip 与失败），
+  所以主机侧跑全量检查时不会假失败。
 - `tests/run-on-device.sh [ssh别名]`：把包内文件同步到路由器 `/tmp`，做全量 `ucode -c` 编译检查，
   并跑 `version / sources / status / check` 多组真机场景（用实际默认源名
   `immortalwrt_official` / `openwrt_official` / `rtfw_immortalwrt`，不再使用已删除的旧别名）。
@@ -124,13 +139,13 @@
 
 ## 里程碑
 
-|     | 内容                                                                                                 | 状态               |
-| --- | ---------------------------------------------------------------------------------------------------- | ------------------ |
-| M1  | 检测闭环：源抽象、两种 layout、判据、CLI、rpcd、LuCI 概览页                                          | 已完成并在真机验证 |
-| M2  | 下载与校验（`curl -C -` 续传、`profiles.json.images[].sha256`、`file_size_limits.image` 下载前校验） | 已完成并在真机验证 |
-| M3  | 刷写（`sysupgrade -k`）、三态刷写日志、刷写类 webhook                                                | **暂缓**           |
-| M4  | 定时检测（`/etc/crontabs/root` 标记块）、ipk+apk 双产物 CI                                           | 已落地             |
+|     | 内容                                                                                                                        | 状态               |
+| --- | --------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| M1  | 检测闭环：源抽象、两种 layout、判据、CLI、rpcd、LuCI 概览页                                                                 | 已完成并在真机验证 |
+| M2  | 下载与校验（`curl -C -` 续传、`profiles.json.images[].sha256`、`file_size_limits.image` 下载前校验）                        | 已完成并在真机验证 |
+| M3  | 刷写（`sysupgrade -k -c`、7 条阻断护栏、四态状态机）、刷写日志、刷写类 webhook（`flash_started`/`flash_ok`/`flash_failed`） | 已完成/已落地      |
+| M4  | 定时检测（`/etc/crontabs/root` 标记块）、ipk+apk 双产物 CI                                                                  | 已落地             |
 
-M3 的 webhook 说明：下载完成事件 `download_done` 已在 M2 实现；检测 webhook 本次新增
-（判定为 `update` / `rebuild` 时投递 `check_update`，检测失败投递 `check_failed`，其余不打扰）。M3 只欠刷写与三态刷写日志，未实现的档位 2 会在事件日志里
-明确记录「刷写能力未实现」，不会静默假装完成。
+webhook 事件全貌：检测到 `update` / `rebuild` 时投递 `check_update`，检测失败投递 `check_failed`
+（其余不打扰）；下载收尾投递 `download_done`；刷写发起投递 `flash_started`，重启后由开机闭环
+投递 `flash_ok` 或 `flash_failed`。未配置 webhook 时静默跳过。
