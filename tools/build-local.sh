@@ -9,12 +9,12 @@
 set -eu
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-WORK="${WORK:-/tmp/lsu-build}"
+WORK="${WORK:-/tmp/rtfw-build}"
 mkdir -p "$WORK"
 
 docker run --rm -i \
 	-v "$WORK:/build" \
-	-v lsu-build-work:/work \
+	-v rtfw-build-work:/work \
 	-v "$REPO:/src:ro" \
 	ubuntu:22.04 bash -s <<'INNER'
 set -eu
@@ -42,12 +42,12 @@ build() {
 	fi
 
 	cd "/work/$v"
-	rm -rf package/luci-app-sysupgrade
+	rm -rf package/luci-app-rtfwupgrade
 	# 用 git 干净树构建（与 CI 的 checkout 一致）。直接拷贝工作区会掩盖
 	# 被 .gitignore 误伤的文件 —— 已踩过：CLI 主程序缺失只在 CI 暴露。
 	rm -rf "/work/src-$v"; mkdir -p "/work/src-$v"
-	git -C /src archive HEAD luci-app-sysupgrade | tar -x -C "/work/src-$v"
-	cp -r "/work/src-$v/luci-app-sysupgrade" package/
+	git -C /src archive HEAD luci-app-rtfwupgrade | tar -x -C "/work/src-$v"
+	cp -r "/work/src-$v/luci-app-rtfwupgrade" package/
 
 	# 官方 i18n 机制需要 po2lmo（luci-base 提供），而 luci-base 依赖 liblua → 需要全套 feeds
 	if [ ! -d feeds/luci/.git ] || [ ! -d feeds/packages/.git ]; then
@@ -61,7 +61,7 @@ build() {
 
 	echo "  编译本包…"
 
-	if make package/luci-app-sysupgrade/compile V=s >/tmp/build-$v.log 2>&1; then
+	if make package/luci-app-rtfwupgrade/compile V=s >/tmp/build-$v.log 2>&1; then
 		echo "  编译成功"
 	else
 		echo "  编译返回非零，错误行："
@@ -69,9 +69,9 @@ build() {
 	fi
 
 	# 清掉 SDK 里上一轮累积的旧产物，避免同一个包名出现多个时间戳
-	find bin -name "*sysupgrade*" -type f -delete 2>/dev/null
+	find bin -name "*rtfwupgrade*" -type f -delete 2>/dev/null
 	rm -rf "/build/out-$v"; mkdir -p "/build/out-$v"
-	find bin -name "*sysupgrade*" -type f -exec cp {} "/build/out-$v/" \; 2>/dev/null
+	find bin -name "*rtfwupgrade*" -type f -exec cp {} "/build/out-$v/" \; 2>/dev/null
 
 	echo "  --- 产物 ---"
 	ls -l "/build/out-$v" 2>/dev/null | tail -3

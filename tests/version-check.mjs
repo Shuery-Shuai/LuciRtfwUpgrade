@@ -8,10 +8,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PKG = path.join(ROOT, 'luci-app-sysupgrade');
+const PKG = path.join(ROOT, 'luci-app-rtfwupgrade');
 
 const pkgVersion = fs.readFileSync(path.join(PKG, 'Makefile'), 'utf8').match(/^PKG_VERSION:=(.+)$/m)?.[1].trim();
-const modVersion = fs.readFileSync(path.join(PKG, 'root/usr/share/ucode/lucisysupgrade/version.uc'), 'utf8')
+const modVersion = fs.readFileSync(path.join(PKG, 'root/usr/share/ucode/rtfwupgrade/version.uc'), 'utf8')
 	.match(/VERSION:\s*'([^']+)'/)?.[1];
 
 console.log(`Makefile PKG_VERSION = ${pkgVersion}`);

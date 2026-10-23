@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PKG = path.join(ROOT, 'luci-app-sysupgrade');
+const PKG = path.join(ROOT, 'luci-app-rtfwupgrade');
 
 function walk(dir, out = []) {
 	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -38,11 +38,15 @@ for (const f of walk(path.join(PKG, 'root')).filter(f => f.endsWith('menu.d') ||
 }
 
 // 3) po 里的 msgid
-const PO = path.join(PKG, 'po/zh_Hans/lucisysupgrade.po');
+const PO = path.join(PKG, 'po/zh_Hans/rtfwupgrade.po');
 const po = fs.readFileSync(PO, 'utf8');
 const translated = new Set();
-for (const m of po.matchAll(/^msgid\s+"((?:[^"\\]|\\.)*)"/gm))
+for (const m of po.matchAll(/^msgid\s+"((?:[^"\\]|\\.)*)"/gm)) {
+	// msgid "" 是 po 头（Project-Id-Version 那段），不是可翻译条目；
+	// 把它算进来会让统计永远比实际多 1 条，看起来像有残留条目。
+	if (!m[1]) continue;
 	translated.add(m[1].replace(/\\"/g, '"').replace(/\\n/g, '\n'));
+}
 
 const missing = [...used.entries()].filter(([id]) => !translated.has(id));
 const unused = [...translated].filter(id => id && !used.has(id));

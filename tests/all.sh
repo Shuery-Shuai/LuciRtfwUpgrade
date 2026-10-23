@@ -1,5 +1,5 @@
 #!/bin/sh
-# 一次跑完全部检查：主机侧（Node 渲染/i18n/语法）+ 真机侧（需要 ssh 别名）。
+# 一次跑完全部检查：主机侧（Node 渲染/i18n/仓库一致性/语法）+ 真机侧（需要 ssh 别名）。
 # 用法: tests/all.sh [ssh别名]     传 "-" 表示跳过真机部分
 set -u
 
@@ -21,13 +21,16 @@ try node "$ROOT/tests/i18n-check.mjs"
 step "视图渲染检查（Node 桩）"
 try node "$ROOT/tests/render-check.mjs"
 
+step "仓库一致性（旧标识/布局/CLI/菜单/lmo）"
+try node "$ROOT/tests/consistency-check.mjs"
+
 step "JS 语法"
 bad=0
 while IFS= read -r f; do
 	[ -n "$f" ] || continue
 	node --check "$f" || { echo "  语法错误: $f"; bad=1; }
 done <<EOF
-$(find "$ROOT/luci-app-sysupgrade/htdocs" -name '*.js')
+$(find "$ROOT/luci-app-rtfwupgrade/htdocs" -name '*.js')
 EOF
 [ $bad -eq 0 ] || fail=1
 
@@ -37,13 +40,15 @@ while IFS= read -r f; do
 	[ -n "$f" ] || continue
 	python3 -c "import json,sys; json.load(open('$f'))" || { echo "  JSON 非法: $f"; bad=1; }
 done <<EOF
-$(find "$ROOT/luci-app-sysupgrade" -name '*.json')
+$(find "$ROOT/luci-app-rtfwupgrade" -name '*.json')
 EOF
 [ $bad -eq 0 ] || fail=1
 
 step "shell 检查"
 if command -v shellcheck >/dev/null 2>&1; then
-	for f in "$ROOT"/tests/*.sh "$ROOT"/tools/*.sh; do
+	# 包内 uci-defaults 没有 .sh 后缀（靠 shebang 识别），会装到设备上执行，必须一起检查
+	for f in "$ROOT"/tests/*.sh "$ROOT"/tools/*.sh "$ROOT"/luci-app-rtfwupgrade/root/etc/uci-defaults/*; do
+		[ -f "$f" ] || continue
 		try shellcheck "$f"
 	done
 else

@@ -1,12 +1,13 @@
 #!/bin/sh
-# 用真机的 apk-tools 深验 .apk 产物内容（apk v3 是 ADB 格式，主机侧 tar 读不了）。
+# 用真机的 apk-tools 深验 luci-app-rtfwupgrade 的 .apk 产物内容
+#（apk v3 是 ADB 格式，主机侧 tar 读不了）。
 # 用法: tests/verify-apk.sh [ssh别名] <本地 apk 路径>
 set -eu
 
 HOST="${1:-ppuc}"
 APK="${2:?用法: tests/verify-apk.sh [ssh别名] <本地 apk 路径>}"
 SSH="ssh -o BatchMode=yes -o User=root $HOST"
-REMOTE=/tmp/verify-lsu.apk
+REMOTE=/tmp/verify-rtfwupgrade.apk
 fail=0
 
 echo "== 传到路由器并读取 =="
@@ -20,13 +21,16 @@ DUMP=$($SSH "apk --allow-untrusted manifest $REMOTE 2>/dev/null")
 echo "  文件数: $(printf '%s' "$DUMP" | grep -c sha256 || true)"
 
 echo "== 逐个断言关键文件 =="
-# 语言包（luci-i18n-*）只应含 lmo；主包应含代码、视图、配置、菜单与 ACL
+# 语言包（luci-i18n-rtfwupgrade-*）只应含 lmo；主包应含代码、视图、配置、菜单与 ACL
 case "$(basename "$APK")" in
-	*luci-i18n-*)
-		WANT="usr/lib/lua/luci/i18n/lucisysupgrade.zh-cn.lmo"
+	*luci-i18n-rtfwupgrade-*)
+		WANT="usr/lib/lua/luci/i18n/rtfwupgrade.zh-cn.lmo"
+		;;
+	*luci-app-rtfwupgrade*)
+		WANT="usr/share/ucode/rtfwupgrade/util.uc usr/share/ucode/rtfwupgrade/check.uc usr/share/ucode/rtfwupgrade/scheduler.uc usr/bin/rtfwupgrade.sh usr/share/rpcd/ucode/rtfwupgrade www/luci-static/resources/view/rtfwupgrade/overview.js www/luci-static/resources/view/rtfwupgrade/settings.js www/luci-static/resources/view/rtfwupgrade/logs.js www/luci-static/resources/rtfwupgrade/format.js www/luci-static/resources/rtfwupgrade/rtfwupgrade.css etc/config/rtfwupgrade usr/share/rtfwupgrade/config.default etc/uci-defaults/80_rtfwupgrade usr/share/luci/menu.d/luci-app-rtfwupgrade.json usr/share/rpcd/acl.d/luci-app-rtfwupgrade.json"
 		;;
 	*)
-		WANT="usr/share/ucode/lucisysupgrade/util.uc usr/bin/lucisysupgrade usr/share/rpcd/ucode/lucisysupgrade www/luci-static/resources/view/sysupgrade/overview.js etc/config/lucisysupgrade usr/share/luci/menu.d/luci-app-sysupgrade.json usr/share/rpcd/acl.d/luci-app-sysupgrade.json"
+		echo "  FAIL 无法识别的产物名：$(basename "$APK")"; fail=1; WANT=""
 		;;
 esac
 

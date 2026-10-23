@@ -12,7 +12,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const RES = path.join(ROOT, 'luci-app-sysupgrade/htdocs/luci-static/resources');
+const RES = path.join(ROOT, 'luci-app-rtfwupgrade/htdocs/luci-static/resources');
 const FIX = path.join(ROOT, 'tests/fixtures');
 
 const readFixture = name => JSON.parse(fs.readFileSync(path.join(FIX, name), 'utf8'));
@@ -175,11 +175,11 @@ const fakeEv = () => ({
 	currentTarget: { disabled: false, classList: { add() {}, remove() {} } },
 	preventDefault() {}
 });
-const FILE = '/tmp/lucisysupgrade/immortalwrt-mediatek-filogic-bananapi_bpi-r4-squashfs-sysupgrade.itb';
+const FILE = '/tmp/rtfwupgrade/immortalwrt-mediatek-filogic-bananapi_bpi-r4-squashfs-sysupgrade.itb';
 
 const VIEWS = [
 	{
-		file: 'view/sysupgrade/overview.js',
+		file: 'view/rtfwupgrade/overview.js',
 		base: { status: baseStatus },
 		extra: {
 			download: { ok: true, state: 'running', received: 1024, size: 2048, percent: 50 },
@@ -193,8 +193,18 @@ const VIEWS = [
 			{ name: '无下载', data: baseStatus, expect: ['Download image'] },
 			{
 				name: '下载中',
-				data: { ...baseStatus, download: { state: 'running', received: 5160906, size: 23593558, percent: 21 } },
-				expect: ['Cancel', 'Downloading', '21%']
+				data: {
+					...baseStatus,
+					download: {
+						state: 'running',
+						received: 5160906,
+						size: 23593558,
+						percent: 21,
+						resumed_from: 5160906,
+						resume_reason: 'ETag/Last-Modified 一致'
+					}
+				},
+				expect: ['Cancel', 'Downloading', '21%', 'Resume check', 'ETag/Last-Modified 一致']
 			},
 			{
 				name: '已校验',
@@ -206,23 +216,38 @@ const VIEWS = [
 			},
 			{
 				name: '失败',
-				data: { ...baseStatus, download: { state: 'failed', error: 'curl exit 22' } },
-				expect: ['Download failed', 'Retry download', 'curl exit 22']
+				data: {
+					...baseStatus,
+					download: { state: 'failed', error: 'curl exit 22', resume_reason: '没有已下载的部分' }
+				},
+				expect: ['Download failed', 'Retry download', 'curl exit 22', 'Resume check', '没有已下载的部分']
 			},
 			{
 				name: '已取消',
-				data: { ...baseStatus, download: { state: 'cancelled' } },
-				expect: ['Resume download', 'Download cancelled']
+				data: {
+					...baseStatus,
+					download: { state: 'cancelled', resume_reason: 'ETag 变化：abc → def' }
+				},
+				expect: ['Resume download', 'Download cancelled', 'Resume check', 'ETag 变化：abc → def']
 			}
 		]
 	},
 	{
-		file: 'view/sysupgrade/settings.js',
+		file: 'view/rtfwupgrade/settings.js',
 		base: { status: baseStatus },
 		extra: {
+			// settings.js 的 load() 用 Promise.all 同时取 status 与 schedule_status
+			schedule_status: {
+				path: '/etc/crontabs/root',
+				schedule: '每天 04:00',
+				wanted: '0 4 * * * mkdir -p /tmp/rtfwupgrade && /usr/bin/rtfwupgrade.sh cron >> /tmp/rtfwupgrade/cron.log 2>&1',
+				applied: '0 4 * * * mkdir -p /tmp/rtfwupgrade && /usr/bin/rtfwupgrade.sh cron >> /tmp/rtfwupgrade/cron.log 2>&1',
+				in_sync: true
+			},
 			set_options: { ok: true },
 			set_active: { ok: true, active_source: 'immortalwrt_official', config: { sources: baseSources.sources } },
 			source_add: { ok: true, sources: baseSources.sources, active_source: 'immortalwrt_official' },
+			source_set: { ok: true, sources: baseSources.sources, active_source: 'immortalwrt_official' },
 			source_del: { ok: true, sources: baseSources.sources, active_source: 'immortalwrt_official' }
 		},
 		handlers: [
@@ -230,14 +255,16 @@ const VIEWS = [
 			'handleSaveActive',
 			{ name: 'handleDelete', args: ['openwrt_official'] },
 			{ name: 'doDelete', args: ['openwrt_official'] },
-			'handleAdvancedAdd'
+			'handleAdvancedAdd',
+			{ name: 'handleEdit', args: ['openwrt_official'] },
+			'handleEditSave'
 		],
 		cases: [
 			{
-				name: '设置（快速添加 + 高级对话框）',
+				name: '设置（快速添加 + 高级/编辑对话框 + 调度状态）',
 				data: {
 					...baseStatus,
-					layouts: ['official', 'bin_targets_root'],
+					layouts: ['official', 'default'],
 					config: {
 						...baseStatus.config,
 						sources: baseSources.sources,
@@ -250,13 +277,28 @@ const VIEWS = [
 					'Save and apply',
 					'Save settings',
 					'Scheduled task',
+					'Scheduled task status',
+					'Written to crontab',
+					'Wanted',
+					'Applied',
 					'Time (24h)',
+					'Edit',
 					'Delete',
 					'Preset',
-					'Advanced'
+					'Advanced',
+					// 两种布局的名称与目录结构说明
+					'OpenWRT/ImmortalWRT official release page structure: root/releases/release/targets',
+					'Default build output directory structure: root/targets'
 				],
-				requireClass: 'lsu-table',
-				expect: ['Identifier', 'auto-generated when empty', 'internal UCI section name'],
+				expect: [
+					'Identifier',
+					'auto-generated when empty',
+					'internal UCI section name',
+					// 编辑对话框：标题 + 标识只读说明（source_set 回调已在上面的 after 里跑过）
+					'Edit source',
+					'It is the UCI section name and cannot be changed.'
+				],
+				requireClass: 'rtfw-table',
 				after: async function (view) {
 					// 快速添加：缺必填 → 警告；填好 → 成功
 					await view.handleQuickAdd();
@@ -265,7 +307,14 @@ const VIEWS = [
 					await view.handleQuickAdd();
 					// 高级对话框
 					await view.handleAdvanced();
-					return view.advNode;
+					// 编辑对话框：入口 → 保存回调（source_set）
+					const editModal = await view.handleEdit('openwrt_official');
+					await view.handleEditSave();
+					return [
+						view.advNode,
+						{ attrs: {}, children: [editModal?.title || ''] },
+						...(editModal?.children || [])
+					];
 				},
 				orderSequences: [
 					['Active', 'Name', 'Layout', 'Address', 'System', 'Actions'],
@@ -275,7 +324,7 @@ const VIEWS = [
 		]
 	},
 	{
-		file: 'view/sysupgrade/logs.js',
+		file: 'view/rtfwupgrade/logs.js',
 		base: {},
 		extra: {
 			logs: {
@@ -283,7 +332,13 @@ const VIEWS = [
 					{ ts: 1791118000, level: 'info', event: 'check', message: '远端更旧（可降级）：源码构建时间…' },
 					{ ts: 1791118100, level: 'error', event: 'download', message: '下载失败：sha256 不匹配' }
 				],
-				download_log: 'curl: (22) The requested URL returned error: 404'
+				download_log: 'curl: (22) The requested URL returned error: 404',
+				cron_log: '未检测：2026-10-02 04:00 UTC',
+				files: {
+					events: '/tmp/rtfwupgrade/events.jsonl',
+					download_log: '/tmp/rtfwupgrade/download.log',
+					cron_log: '/tmp/rtfwupgrade/cron.log'
+				}
 			},
 			logs_clear: { ok: true }
 		},
@@ -296,7 +351,13 @@ const VIEWS = [
 						{ ts: 1791118000, level: 'info', event: 'check', message: '远端更旧（可降级）：源码构建时间…' },
 						{ ts: 1791118100, level: 'error', event: 'download', message: '下载失败：sha256 不匹配' }
 					],
-					download_log: 'curl: (22) 404'
+					download_log: 'curl: (22) 404',
+					cron_log: '未检测：2026-10-02 04:00 UTC',
+					files: {
+						events: '/tmp/rtfwupgrade/events.jsonl',
+						download_log: '/tmp/rtfwupgrade/download.log',
+						cron_log: '/tmp/rtfwupgrade/cron.log'
+					}
 				},
 				expect: [
 					'Logs',
@@ -307,14 +368,17 @@ const VIEWS = [
 					'Search',
 					'Shown 2 of 2 events',
 					'sha256 不匹配',
-					'Raw downloader output'
+					'Raw downloader output',
+					'Raw scheduled-task output',
+					'Scheduled-task log: /tmp/rtfwupgrade/cron.log',
+					'未检测：2026-10-02 04:00 UTC'
 				]
 			},
 			{
 				name: '日志（空态）',
 				data: null,
-				methods: { logs: { events: [], download_log: '' } },
-				expect: ['No events yet.', 'No downloader output yet.']
+				methods: { logs: { events: [], download_log: '', cron_log: '' } },
+				expect: ['No events yet.', 'No downloader output yet.', 'No scheduled-task output yet.']
 			}
 		]
 	}
@@ -353,10 +417,10 @@ for (const spec of VIEWS) {
 		const { ctx, modules, notifications, polled, modals } = makeContext(methods);
 
 		try {
-			modules['sysupgrade.format'] = evalModule(
+			modules['rtfwupgrade.format'] = evalModule(
 				ctx,
-				{ ...modules, 'sysupgrade.format': null },
-				path.join(RES, 'sysupgrade/format.js')
+				{ ...modules, 'rtfwupgrade.format': null },
+				path.join(RES, 'rtfwupgrade/format.js')
 			).value;
 
 			const { value: view } = evalModule(ctx, modules, path.join(RES, spec.file));
@@ -379,7 +443,7 @@ for (const spec of VIEWS) {
 			const text = collectText(tree).join(' ') + ' ' + (extraTree ? collectText(extraTree).join(' ') : '');
 			globalThis.__lastText = text;
 
-			// 表格必须带 lsu-table（固定布局 + 表头同侧对齐），否则会出现表头与内容错位
+			// 表格必须带 rtfw-table（固定布局 + 表头同侧对齐），否则会出现表头与内容错位
 			if (c.requireClass && !JSON.stringify(tree).includes(c.requireClass))
 				throw new Error('缺少容器类: ' + c.requireClass);
 

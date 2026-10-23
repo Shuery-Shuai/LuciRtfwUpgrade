@@ -18,9 +18,11 @@
 		"build_date_iso": "2026-09-29 07:18 UTC"
 	},
 	"config": {
-		"enabled": true,
 		"unattended": 0,
-		"interval": 24,
+		"schedule_kind": "daily",
+		"schedule_time": "04:00",
+		"schedule_weekday": 1,
+		"schedule_day": 1,
 		"webhook": "",
 		"active_source": "immortalwrt_official",
 		"sources": [
@@ -229,15 +231,11 @@
 			"layout": "official",
 			"system": ""
 		},
-		"unattended": 0,
-		"interval": 24
+		"unattended": 0
 	},
 	"download": {
 		"state": "idle",
 		"percent": 0
 	},
-	"layouts": [
-		"official",
-		"bin_targets_root"
-	]
+	"layouts": ["official", "default"]
 }

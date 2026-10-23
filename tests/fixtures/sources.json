@@ -21,13 +21,20 @@
 			"url": "https://rtfw.shuery.lssa.fun",
 			"layout": "official",
 			"system": "immortalwrt"
+		},
+		{
+			"name": "own_build",
+			"label": "自建编译产物",
+			"url": "https://immortalwrt.shuery.lssa.fun",
+			"layout": "default",
+			"system": ""
 		}
 	],
 	"unattended": 0,
-	"interval": 24,
-	"enabled": true,
-	"layouts": [
-		"official",
-		"bin_targets_root"
-	]
+	"schedule_kind": "daily",
+	"schedule_time": "04:00",
+	"schedule_weekday": 1,
+	"schedule_day": 1,
+	"webhook": "",
+	"layouts": ["official", "default"]
 }
