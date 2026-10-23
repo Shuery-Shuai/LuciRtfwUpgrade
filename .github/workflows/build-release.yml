@@ -108,7 +108,7 @@ jobs:
                   find . -type f -exec sha256sum {} \; | sed 's|  \./.*/|  |' | sort -k2 > ../SHA256SUMS
                   cat ../SHA256SUMS
 
-            - name: 创建 Release
+            - name: 创建或更新 Release
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
@@ -117,6 +117,14 @@ jobs:
                   case "${GITHUB_REF_NAME}" in
                     *alpha*|*beta*|*rc*) extra="--prerelease" ;;
                   esac
+                  # 同一个 tag 重跑（例如重打 tag 修 CI）时 Release 已存在，
+                  # `create` 会报「a release with the same tag name already exists」
+                  # （alpha2 重跑踩到）。已有就先删掉再建，保证附件与 SHA256SUMS
+                  # 总是本次构建的产物，不做半新半旧的合并。
+                  if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+                    echo "Release ${GITHUB_REF_NAME} 已存在，先删除以便用本次产物重建"
+                    gh release delete "${GITHUB_REF_NAME}" --yes --cleanup-tag=false
+                  fi
                   find artifacts -type f -maxdepth 2 | sed 's/^/  /'
                   gh release create "${GITHUB_REF_NAME}" \
                     --title "${GITHUB_REF_NAME}" \
