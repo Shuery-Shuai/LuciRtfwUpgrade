@@ -206,13 +206,16 @@ rtfwupgrade.sh version        # 版本号
 
 ```mermaid
 stateDiagram-v2
+    state "flash-pending" as pending
+    state "boot-confirmed" as confirmed
+    state "flash-failed" as failed
     [*] --> idle
-    idle --> flash-pending: 护栏全过，状态先落盘再起进程
-    flash-pending --> boot-confirmed: 重启后 BUILD_ID == 目标构建
-    flash-pending --> flash-failed: 重启后 BUILD_ID != 目标构建
-    flash-pending --> idle: flash-clear（明确放弃）
-    boot-confirmed --> idle: flash-clear
-    flash-failed --> idle: flash-clear
+    idle --> pending: 护栏全过，状态先落盘再起进程
+    pending --> confirmed: 重启后 BUILD_ID == 目标构建
+    pending --> failed: 重启后 BUILD_ID != 目标构建
+    pending --> idle: flash-clear（明确放弃）
+    confirmed --> idle: flash-clear
+    failed --> idle: flash-clear
 ```
 
 | state            | 含义                                     |
