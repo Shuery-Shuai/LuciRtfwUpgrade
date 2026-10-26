@@ -1,5 +1,5 @@
 {
-	"version": "0.1.0_alpha1",
+	"version": "0.2.0_alpha2",
 	"ts": 1791119871,
 	"local": {
 		"hostname": "PPUC",
@@ -15,7 +15,8 @@
 		"version_kind": "snapshot",
 		"build_id": "r0-bf156b6",
 		"build_date": 1790666285,
-		"build_date_iso": "2026-09-29 07:18 UTC"
+		"build_date_iso": "2026-09-29 07:18 UTC",
+		"distribution_id": "immortalwrt"
 	},
 	"config": {
 		"unattended": 0,
@@ -24,17 +25,17 @@
 		"schedule_weekday": 1,
 		"schedule_day": 1,
 		"webhook": "",
-		"active_source": "immortalwrt_official",
+		"active_source": "immortalwrt",
 		"sources": [
 			{
-				"name": "immortalwrt_official",
+				"name": "immortalwrt",
 				"label": "ImmortalWrt 官方",
 				"url": "https://downloads.immortalwrt.org",
 				"layout": "official",
 				"system": ""
 			},
 			{
-				"name": "openwrt_official",
+				"name": "openwrt",
 				"label": "OpenWrt 官方",
 				"url": "https://downloads.openwrt.org",
 				"layout": "official",
@@ -52,7 +53,7 @@
 	"last": {
 		"ok": true,
 		"ts": 1791118585,
-		"version": "0.1.0_alpha1",
+		"version": "0.2.0_alpha2",
 		"local": {
 			"hostname": "PPUC",
 			"distribution": "ImmortalWrt",
@@ -67,11 +68,12 @@
 			"version_kind": "snapshot",
 			"build_id": "r0-bf156b6",
 			"build_date": 1790666285,
-			"build_date_iso": "2026-09-29 07:18 UTC"
+			"build_date_iso": "2026-09-29 07:18 UTC",
+			"distribution_id": "immortalwrt"
 		},
 		"remote": {
 			"ok": true,
-			"source": "immortalwrt_official",
+			"source": "immortalwrt",
 			"label": "ImmortalWrt 官方",
 			"url": "https://downloads.immortalwrt.org",
 			"layout": "official",
@@ -204,7 +206,11 @@
 			],
 			"image_limit": 381681664,
 			"warnings": [],
-			"error": ""
+			"error": "",
+			"image_prefix": "immortalwrt-mediatek-filogic-bananapi_bpi-r4",
+			"device_vendor": "Bananapi",
+			"device_model": "BPi-R4",
+			"distribution_hint": "immortalwrt"
 		},
 		"verdict": {
 			"state": "downgrade",
@@ -225,7 +231,7 @@
 			}
 		},
 		"source": {
-			"name": "immortalwrt_official",
+			"name": "immortalwrt",
 			"label": "ImmortalWrt 官方",
 			"url": "https://downloads.immortalwrt.org",
 			"layout": "official",

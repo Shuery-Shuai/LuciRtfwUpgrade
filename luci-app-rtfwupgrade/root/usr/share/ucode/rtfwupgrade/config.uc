@@ -24,6 +24,49 @@ function normalize_layout(layout) {
 	return LAYOUT_ALIASES[value] ?? value;
 }
 
+// 通道按源存放：官方站有 snapshots 与多个 releases，单版本发布站（default 布局）
+// 只有一层 targets 目录，所以通道不能做成全局开关。
+//   ''                当前通道（snapshot 看 snapshots，release 看同版本线）
+//   'snapshots'       显式钉死在快照通道
+//   'releases/<ver>'  显式钉死在某个发布版本通道
+//
+// default 布局没有可选项，通道恒为 'current'：界面上照常显示它（否则用户会以为
+// 漏了一个字段），但列表只有这一项、没有别的可选，也就无从更改。
+const DEFAULT_CHANNEL = 'current';
+
+// 语义通道：存的是「跟随哪条线」，不是某个补丁版本的具体目录。
+// 每次探测按源上的 .versions.json 现算目标目录，所以「稳定版」会随源前进，
+// 不会把用户钉死在 25.12.2 这种会过期的具体版本上。
+//   ''         当前通道（本机运行的那条线，snapshot 看 snapshots、release 看同版本线）
+//   snapshot   快照版
+//   stable     稳定版（源公布的 stable_version）
+//   oldstable  旧稳定版（源公布的 oldstable_version）
+//   major      当前主版本（本机主版本号的最新发布版，如 25.x）
+//   minor      当前子版本（本机小版本线的最新发布版，如 25.12.x）
+const CHANNELS = [ '', 'snapshot', 'stable', 'oldstable', 'major', 'minor' ];
+// 兼容旧配置与 CLI --channel：具体目录仍然可以被直接指定
+const LEGACY_CHANNEL_RE = /^(snapshots|releases\/[A-Za-z0-9._-]+)$/;
+
+function default_channel(layout) {
+	return (normalize_layout(layout ?? '') == 'default') ? DEFAULT_CHANNEL : '';
+}
+
+function normalize_channel(channel, layout) {
+	let value = normalize_layout(layout ?? '');
+	if (value != 'official')
+		return '';
+
+	let c = trim(channel ?? '');
+	if (!length(c))
+		return '';
+	if (index(CHANNELS, c) >= 0)
+		return c;
+	if (match(c, LEGACY_CHANNEL_RE))
+		return c;
+
+	return '';
+}
+
 function defaults() {
 	return {
 		unattended: 0,
@@ -33,11 +76,12 @@ function defaults() {
 		schedule_weekday: 1,
 		schedule_day: 1,
 		webhook: '',
-		active_source: 'immortalwrt_official',
+		// 内置只有两个官方源：布局说明的样本，不代表用户实际该用哪个。
+		// ID 直接用发行版名，与 os-release 的 ID 对齐，便于判断「源与本机是否同族」。
+		active_source: 'openwrt',
 		sources: [
-			{ name: 'immortalwrt_official', label: 'ImmortalWrt 官方', url: 'https://downloads.immortalwrt.org', layout: 'official', system: '' },
-			{ name: 'openwrt_official', label: 'OpenWrt 官方', url: 'https://downloads.openwrt.org', layout: 'official', system: '' },
-			{ name: 'rtfw_immortalwrt', label: 'RTFW 聚合站（immortalwrt）', url: 'https://rtfw.shuery.lssa.fun', layout: 'official', system: 'immortalwrt' }
+			{ name: 'openwrt', label: 'OpenWrt 官方', url: 'https://downloads.openwrt.org', layout: 'official', system: '', channel: '' },
+			{ name: 'immortalwrt', label: 'ImmortalWrt 官方', url: 'https://downloads.immortalwrt.org', layout: 'official', system: '', channel: '' }
 		]
 	};
 }
@@ -83,12 +127,14 @@ function load() {
 			let name = section_name(s);
 			if (!length(name))
 				return;
+			let layout = normalize_layout(s.layout ?? 'official');
 			push(sources, {
 				name: name,
 				label: trim(s.label ?? name),
 				url: trim(s.url ?? ''),
-				layout: normalize_layout(s.layout ?? 'official'),
-				system: trim(s.system ?? '')
+				layout: layout,
+				system: trim(s.system ?? ''),
+				channel: normalize_channel(s.channel ?? '', layout)
 			});
 		});
 	} catch (e) {
@@ -107,6 +153,12 @@ function load() {
 		active = length(sources) ? sources[0].name : '';
 
 	return {
+		// 用户亲自确认过的固件来源（源段名 / ID）。
+		// 空串 = 从未确认过，界面据此提示「先确认当前源」。
+		// 与 active_source 的区别：active_source 随时会随「切换源」按钮改变，
+		// 而本字段只在用户确认（或放行跨源后立即刷写）时才更新，
+		// 因此可以判断「用户当前看到的检测结论，是否来自他确认过的那台设备的固件来源」。
+		current_firmware_source: trim(g.current_firmware_source ?? ''),
 		unattended: normalize_unattended(g.unattended),
 		// 跨发行版放行只是**手工路径的持久默认**；自动刷写路径永不使用 force。
 		flash_allow_cross_distro: normalize_switch(g.flash_allow_cross_distro),
@@ -169,6 +221,11 @@ return {
 	LAYOUTS: LAYOUTS,
 	SCHEDULE_KINDS: SCHEDULE_KINDS,
 	normalize_layout: normalize_layout,
+	normalize_channel: normalize_channel,
+	DEFAULT_CHANNEL: DEFAULT_CHANNEL,
+	CHANNELS: CHANNELS,
+	LEGACY_CHANNEL_RE: LEGACY_CHANNEL_RE,
+	default_channel: default_channel,
 	schedule_cron: schedule_cron,
 	schedule_label: schedule_label,
 	defaults: defaults,

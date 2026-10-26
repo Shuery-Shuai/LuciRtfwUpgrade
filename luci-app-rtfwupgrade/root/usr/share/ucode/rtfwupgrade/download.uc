@@ -132,14 +132,14 @@ function head_meta(url) {
 
 function verify(path, sha256) {
 	if (!length(trim(sha256 ?? '')))
-		return { ok: false, error: 'profiles.json 未提供 sha256，拒绝放行' };
+		return { ok: false, error: 'profiles.json 未提供 sha256，拒绝放行。' };
 
 	let got = digest.sha256_file(path);
 	if (got == null)
-		return { ok: false, error: '无法计算下载文件的 sha256' };
+		return { ok: false, error: '无法计算下载文件的 sha256。' };
 
 	if (util.lc_trim(got) != util.lc_trim(sha256))
-		return { ok: false, error: 'sha256 不匹配', got: trim(got) };
+		return { ok: false, error: 'sha256 不匹配。', got: trim(got) };
 
 	return { ok: true, got: trim(got) };
 }
@@ -223,11 +223,11 @@ function start(req_source, req_channel) {
 		: config.active(conf);
 
 	if (src == null)
-		return { ok: false, error: '没有可用的源' };
+		return { ok: false, error: '没有可用的源。' };
 
 	let cur = status();
 	if (cur.state == 'running')
-		return { ok: false, error: '已有下载在进行中' };
+		return { ok: false, error: '已有下载在进行中。' };
 
 	let loc = local.identity();
 	let remote = source.probe(src, loc, req_channel);
@@ -236,12 +236,12 @@ function start(req_source, req_channel) {
 
 	let img = remote.image;
 	if (img == null)
-		return { ok: false, error: '该源没有可用于升级的镜像' };
+		return { ok: false, error: '该源没有可用于升级的镜像。' };
 
 	let size = util.to_int(img.size, 0);
 	let limit = util.to_int(remote.image_limit, 0);
 	if (limit > 0 && size > limit)
-		return { ok: false, error: sprintf('镜像 %d 字节超过该 profile 的上限 %d 字节', size, limit) };
+		return { ok: false, error: sprintf('镜像 %d 字节超过该 profile 的上限 %d 字节。', size, limit) };
 
 	let file = DIR + '/' + replace(img.name ?? 'image.bin', /[^A-Za-z0-9._-]/g, '_');
 	let url = source.url_join([ remote.dir, img.name ]);
@@ -261,7 +261,7 @@ function start(req_source, req_channel) {
 
 	let free = free_bytes(DIR);
 	if (size > 0 && free > 0 && free < size * 1.1)
-		return { ok: false, error: sprintf('/tmp 可用空间不足（需约 %d，实有 %d）', size, free) };
+		return { ok: false, error: sprintf('/tmp 可用空间不足（需约 %d，实有 %d）。', size, free) };
 
 	// 上一轮的残留下载进程必须先清掉，否则两个 curl 会同时写同一个文件
 	sweep_strays();
@@ -303,7 +303,7 @@ function start(req_source, req_channel) {
 	let res = util.run(sprintf('setsid sh -c %s > %s 2>&1 & echo $!', util.shquote(inner), util.shquote(LOG)));
 	let pid = util.to_int(trim(res.output ?? ''), 0);
 	if (pid <= 0)
-		return { ok: false, error: '无法启动下载进程' };
+		return { ok: false, error: '无法启动下载进程。' };
 
 	try { fs.unlink(RC); } catch (e) {}
 
@@ -347,7 +347,7 @@ function start(req_source, req_channel) {
 function cancel() {
 	let st = load_state();
 	if (st == null || st.state != 'running')
-		return { ok: false, error: '当前没有进行中的下载', state: status().state };
+		return { ok: false, error: '当前没有进行中的下载。', state: status().state };
 
 	kill_group(st.pid);
 	st.state = 'cancelled';

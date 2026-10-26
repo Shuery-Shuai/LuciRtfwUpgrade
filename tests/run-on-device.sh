@@ -33,8 +33,8 @@ ssh "$HOST" "test -f '$LIBDIR/rtfwupgrade/util.uc' && echo 'lib 路径正确: $L
 echo; echo "== version =="; run version
 echo; echo "== sources =="; run sources
 echo; echo "== status =="; run status
-echo; echo "== check：激活源（默认 immortalwrt_official）=="; run check
-echo "== check：ImmortalWrt 官方源 =="; run "check --source immortalwrt_official"
-echo "== check：OpenWrt 官方源（跨发行版，预期出现警告）=="; run "check --source openwrt_official"
+echo; echo "== check：激活源（默认 immortalwrt）=="; run check
+echo "== check：ImmortalWrt 官方源 =="; run "check --source immortalwrt"
+echo "== check：OpenWrt 官方源（跨发行版，预期出现警告）=="; run "check --source openwrt"
 echo "== check：RTFW 聚合站（预期：远端更旧 / 可降级）=="; run "check --source rtfw_immortalwrt"
 echo "== check --json（激活源，截断 400 字节）=="; run "--json check" | head -c 400; echo

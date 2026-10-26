@@ -35,7 +35,11 @@ rtfwupgrade                        │
 2. `config.load()` 读 UCI，得到源列表与**唯一激活源**（`active_source` 失效时回退到列表第一条源）。
 3. `source.discover()` 取 `<base>/.versions.json`：成功则通道列表 = `snapshots` + 每个 `releases/<ver>`；
    失败则回退 `['snapshots']`；`default` 布局直接返回 `['current']`。
-4. `source.pick_channel()` 通道跟随本机：snapshot 看 `snapshots`；release 看同版本线的最新 release。
+4. `source.pick_channel()` 选通道：源上选了 `channel` 就按它解析，否则用「当前通道」
+   （snapshot 看 `snapshots`；release 看同版本线的最新 release）。钉住的通道即使已从
+   `.versions.json` 消失也照旧使用，由探测如实报 404，避免悄悄回落到别的通道。
+   `channel_origin` 标明来源：`config`（用户钉住）/ `override`（`--channel`）/ `cache` /
+   `.versions.json` / `default` / `layout`。
 5. `source.probe()` 读 `version.buildinfo` 与 `profiles.json`，用 `supported_devices` 匹配 profile
    （回退：`board_name` 的 `,`→`_`），并从 `images[]` 里挑 `type=sysupgrade` + `filesystem=squashfs` 的候选。
 6. `verdict.compare()` 先比身份（`BUILD_ID` vs `version.buildinfo`），再定方向
@@ -65,6 +69,67 @@ rtfwupgrade                        │
 - 删除激活源时，回退结果会**写实**回 UCI，避免留下悬空的 `active_source`；
   最后一条源不允许删除。
 - 源与运行系统不同族时（按 `system` 段与地址判族），探测结果附带**跨发行版警告**。
+
+## 跨源与跨发行版：两套独立的判断
+
+两者名字接近但判据、时机与作用都不同，不要混为一谈：
+
+|      | 跨源更换（cross-source）                              | 跨发行版刷写（cross-distribution）            |
+| ---- | ----------------------------------------------------- | --------------------------------------------- |
+| 判据 | 激活源所属族 vs **本机发行版**                        | 探测到的源所属族 vs **本机发行版**            |
+| 时机 | 打开页面即可判断，**不需要先检测**                    | 每次检测后写入 `remote.warnings`              |
+| 表现 | 概览页刷写区的红框 + 放行勾选；设置页换源对话框的红框 | 刷写区的橙框 + `force` 勾选；8 条护栏里的 `f` |
+| 后端 | `flash.uc` 的 `allow_cross_source()` 拦（h 条）       | `flash.uc` 的 `allow_cross()` 拦（f 条）      |
+| 放行 | 只认当场 `force`，不吃持久默认                        | `force` 或 `flash_allow_cross_distro`         |
+
+- 概览页刷写区顺序固定为：判定分级提示 → 跨源更换 → 跨发行版刷写 → 此操作不可逆 →
+  确认勾选 → 阻断清单 → 刷写按钮。越往下越接近不可逆动作。
+- 跨源状态成立时，探测结果里**必然**也带一条内容相同的跨发行版警告；该句已由跨源块说明，
+  跨发行版块因此只为「跨源不成立」的情况渲染，避免同一件事讲两遍。
+- 跨源拦截**两层都有**：界面层在 `doSetActive()` 未勾选放行时拒绝提交；后端层是 `flash.uc`
+  的 h 条护栏，按「本次要用的源 vs `current_firmware_source`」拦下刷写。只做界面层是不够的 ——
+  直接调 ubus 或走 CLI（`--source`）都能绕过，而 CLI 正是无人值守与脚本最常用的入口。
+  注意 `set_active` 这个 rpcd 方法本身仍不做跨源判断（换源不是刷写，换完不刷就没有风险），
+  真正的闸在下一次刷写时。
+  （曾有反例：`overview.js` 只把跨发行版的勾选传成 `force`，跨源勾选被丢在前端，
+  于是界面放行了、后端却拿不到放行依据 —— 现已合并成同一个 `force`。）
+- 后端两条护栏只认**一个** `force` 参数，没有区分来源。界面上的两个勾选框因此
+  合并成一个 `force` 传给后端：任一勾选即放行对应那条。
+
+## 更新通道
+
+- 通道**按源存放**（源的 `channel` 选项），不是全局开关：官方源有 `snapshots` 与多个
+  `releases/<ver>`，单版本发布站（`default` 布局）只有一个目录，做成全局的会给出一个无效控件。
+- 存的**不是某个补丁版本的目录**，而是「跟随哪条线」的语义值（`config.CHANNELS`）：
+  `''` 当前通道、`snapshot` 快照版、`stable` 稳定版、`oldstable` 旧稳定版、
+  `major` 当前主版本（如 25.x）、`minor` 当前子版本（如 25.12.x）。
+  `source.resolve_channel()` 每次探测按源上 `.versions.json` 现算目录，所以选「稳定版」
+  不会被钉在会过期的 25.12.2 上，而是跟着源前进。旧配置里直接写目录的值仍原样兼容。
+- **判定策略不因通道改变**：通道只决定去哪个目录取数据，取回来之后一律走同一套
+  `probe()` + `verdict.compare()`。选 stable 时得到 `downgrade` 是正确结果，不是缺陷。
+- 语义值解析不出来时（源上没有这条线、或本机是 SNAPSHOT 无从解析主/子版本）
+  `resolve_for_probe()` 直接报错，**绝不回落到别的通道** —— 回落会给出「来自你没选的通道」的结论。
+- `default` 布局没有可选通道，恒为 `current`（`config.DEFAULT_CHANNEL`）：界面照常显示，
+  但渲染成只读文本并标注「由布局固定」，`set_channel` 对它一律拒绝。
+- 结果区标注**这份结果是哪个源产生的**（`res.source`，不是当前激活源）。两者不一致时
+  额外给出警告：切换激活源会作废结果，但历史缓存或命令行 `--source` 都可能留下别的源的结论。
+  设置页切换激活源同样弹窗说明后果（结果作废、构建序列可能不可比、定时任务与自动刷写跟随）。
+- 概览页在切换前弹窗说明三件事：上一次检测结果作废、跨通道构建不可比（可能出现「可降级」）、
+  定时任务与自动刷写同样按这个通道走。确认后才写 UCI，并 `state.clear_last()`。
+- rpcd `channels` 只读接口返回「这个源现有哪些通道」：优先复用上一次检测缓存的
+  `channels`，没有缓存才现取 `.versions.json`（6 秒超时），避免开页面就多一次长网络往返。
+- 编辑源时 `settings.js` 会把 `channel` 原样带回 `source_set`：该接口收到空值会删掉这个选项，
+  否则改个名称就把钉住的通道弄丢了。
+
+## 静态资源缓存
+
+LuCI 把 `<script src="luci.js?v=...">` 中的版本戳作为 `resource_version` 追加到模块 URL。
+本机这份 LuCI 没有该版本戳，模块与样式 URL 都是裸路径，响应里也没有 `Cache-Control`，
+浏览器于是按 `Last-Modified` 的启发式规则缓存：包升级后仍会跑旧 JS，只能手动强制刷新。
+
+本应用自己的样式表改由 `asset()` 拼上包版本号（`?v=<VERSION>`），版本一变 URL 就变。
+JS 模块由 LuCI 的加载器负责，本包无法改写它的 URL，因此升级后若界面文案未更新，
+强制刷新一次即可。
 
 ## i18n 与打包（对照官方）
 
@@ -148,7 +213,7 @@ idle ──download──▶ running ──(进程组退出)──▶ verified |
 
 - 持久配置：`/etc/config/rtfwupgrade`。sysupgrade **默认就保留配置**
   （官方脚本 `export SAVE_CONFIG=1`，`-n` 才是关闭）；`-k` 的真实语义是把当前已安装包
-  列表写进备份，`-c` 才额外保留 `/etc/` 下所有改动过的文件。本项目刷写固定用 `-k -c`。
+  列表写进备份，`-c` 才额外保留 `/etc/` 下所有改动过的文件。本项目刷写固定用 `-c -k`。
 - 运行态：`/tmp`（`rtfwupgrade.last.json`、`rtfwupgrade/download.json`、`flash.log`）；掉电即丢，天然幂等。
 - **刷写状态是唯一放在 `/etc` 的运行态**：`/etc/rtfwupgrade.flash.json`。它必须跨过 sysupgrade 的
   重启，因此由包内的 `root/lib/upgrade/keep.d/rtfwupgrade` 登记（`root/` 前缀会被剥离，
@@ -179,7 +244,7 @@ idle ──flash──▶ flash-pending ──(重启后 BUILD_ID 比对)──�
 一律按 `idle` 处理，绝不把非法值漏给下游判断。13 个状态字段：`state` `trigger` `source` `channel` `file` `sha256`
 `size` `target_build_id` `target_version` `previous_build_id` `started` `finished` `error`。
 
-### 命令形态：`sysupgrade -k -c <绝对路径>`
+### 命令形态：`sysupgrade -c -k <绝对路径>`
 
 - **不加 `-n`**：保留配置本来就是默认（官方脚本 `export SAVE_CONFIG=1`），`-n` 才是关闭。
 - `-k` 把当前已安装包列表写进备份，`-c` 额外保留 `/etc/` 下所有改动过的文件。
@@ -187,9 +252,9 @@ idle ──flash──▶ flash-pending ──(重启后 BUILD_ID 比对)──�
 - `sysupgrade` 末尾走 `ubus call system sysupgrade`，**命令不会返回**，设备直接重启。
   因此只能 `setsid` 后台起、输出重定向进 `/tmp/rtfwupgrade/flash.log`，绝不能同步等待。
 
-### 七条阻断护栏（全部阻断，不是警告）
+### 八条阻断护栏（全部阻断，不是警告）
 
-顺序固定 a→g，全部在 `guards()` 里，`start()` 复用同一份判定（不重复拉 `profiles.json`）：
+顺序固定 a→h（h 排在 f 之后、g 之前），全部在 `guards()` 里，`start()` 复用同一份判定（不重复拉 `profiles.json`）：
 
 | #   | 条件                                                                        | 挡住的问题                                   |
 | --- | --------------------------------------------------------------------------- | -------------------------------------------- |
@@ -199,12 +264,24 @@ idle ──flash──▶ flash-pending ──(重启后 BUILD_ID 比对)──�
 | d   | `verdict` 不是 `update` 也不是 `rebuild`                                    | 不该为一次没有依据的刷写重启设备             |
 | e   | probe 失败 / `image` 为 null / `type!=sysupgrade` 或 `filesystem!=squashfs` | factory 类镜像会重写引导链或分区表，刷了变砖 |
 | f   | `probe.warnings` 含「跨发行版」且 `!allow_cross()`                          | 换系统不是升级，配置极可能不兼容             |
+| h   | 本次要用的源 != `current_firmware_source` 且 `!allow_cross_source()`        | 从用户没确认过的来源刷写（跨源更换）         |
 | g   | 状态文件仍是 `flash-pending`（未结案）                                      | 上一笔刷写没确认，此刻没有任何可信基线       |
 
 另有**两条不阻断的提示**：判定是 `rebuild`（只下载不刷）、远端 `source_date_epoch` 较旧。
 
-`allow_cross()` 的语义：**自动路径（`trigger=auto`）永远返回 false**，连显式 `force` 都忽略 ——
-定时任务不该把设备刷成另一个发行版；手工路径才吃 `force` 参数与 `flash_allow_cross_distro` 这个持久默认。
+两条放行判据刻意分开，因为它们是两种不同的「同意」：
+
+- `allow_cross()`（f 条，跨发行版）：`force` 参数 **或** 手工路径的持久默认 `flash_allow_cross_distro`。
+- `allow_cross_source()`（h 条，跨源）：**只认当场 `force`**，不吃 `flash_allow_cross_distro` ——
+  那个开关的语义是「我接受换发行版」，让它顺手放行跨源，等于一次勾选悄悄替用户确认了一个
+  他从没确认过的固件来源。
+
+两者都遵循同一条铁律：**自动路径（`trigger=auto`）永远返回 false**，连显式 `force` 都忽略 ——
+定时任务不该把设备刷成另一个发行版，也不该从用户没认可的来源刷写。
+界面上跨源与跨发行版是两个勾选框，但传给后端的是**同一个** `force`：任一勾选即放行对应那条。
+
+首次使用（`current_firmware_source` 为空）不算跨源：那只是还没初始化，由概览页引导确认，
+不该让全新安装的 CLI 立刻不可用。
 
 ### 顺序铁律：先落盘，后刷写
 
@@ -246,5 +323,5 @@ idle ──flash──▶ flash-pending ──(重启后 BUILD_ID 比对)──�
 - 不使用 HTTP `Last-Modified`、文件 mtime、文件名里的日期作为更新判据（原因见 `SOURCE-CONTRACT.md`）。
 - **不做自动回滚**：刷写失败停在 `flash-failed`，由人决定下一步（理由见上节）。
 - **不刷非 squashfs 的 sysupgrade 镜像**：factory / 其它类型会重写引导链或分区表，一律由护栏 e 阻断。
-- **不做「无条件自动刷写」**：档位 2 也只在判定为 `update` 且七条护栏全过时才刷。
+- **不做「无条件自动刷写」**：档位 2 也只在判定为 `update` 且八条护栏全过时才刷。
 - 不碰原生 `view/system/flash.js`，不接管系统刷写入口。

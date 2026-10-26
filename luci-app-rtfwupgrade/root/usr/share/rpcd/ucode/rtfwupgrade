@@ -10,6 +10,7 @@ let util = require('rtfwupgrade.util');
 let local = require('rtfwupgrade.local');
 let config = require('rtfwupgrade.config');
 let check = require('rtfwupgrade.check');
+let source = require('rtfwupgrade.source');
 let state = require('rtfwupgrade.state');
 let download = require('rtfwupgrade.download');
 let flash = require('rtfwupgrade.flash');
@@ -74,13 +75,36 @@ function do_check(req) {
 // force 不做 trim：布尔 true 进 trim 会被转成字符串，反而丢掉原类型。
 function do_flash(req) {
 	let a = req?.args ?? req ?? {};
-	let force = a.force;
-	return flash.start({
-		source: arg(req, 'source'),
+	let force = (a.force == '1' || a.force === true);
+	let want = arg(req, 'source');
+	let conf = config.load();
+
+	let src = length(want)
+		? (filter(conf.sources, function (s) { return s.name == want; })[0] ?? null)
+		: config.active(conf);
+
+	let res = flash.start({
+		source: want,
 		channel: arg(req, 'channel'),
-		force: (force == '1' || force === true),
+		force: force,
 		trigger: 'manual'
 	});
+
+	// 用户放行跨源并真的发起了刷写：说明他接受了这个源作为本机的固件来源，
+	// 于是把 current_firmware_source 更新为它，后续的跨源判断才不会一直报同一个提示。
+	// 只在实际发起（ok=true，即已落盘 flash-pending）时更新，护栏拦下时不改。
+	if (force && res != null && res.ok == true && src != null
+		&& length(src.name) && src.name != conf.current_firmware_source) {
+		if (uci_write(function (ctx) {
+			ctx.set(CONFIG, 'globals', 'current_firmware_source', src.name);
+			return true;
+		})) {
+			eventlog.append('warn', 'flash',
+				sprintf('放行跨源刷写：本机固件来源更新为 %s', src.name));
+		}
+	}
+
+	return res;
 }
 
 function uci_write(mutator) {
@@ -97,10 +121,24 @@ function do_set_active(req) {
 	let conf = config.load();
 
 	if (!length(filter(conf.sources, function (s) { return s.name == name; })))
-		return { ok: false, error: '未知的源：' + name };
+		return { ok: false, error: '未知的源：' + name + '。' };
 
-	if (!uci_write(function (ctx) { ctx.set(CONFIG, 'globals', 'active_source', name); return true; }))
-		return { ok: false, error: 'uci commit 失败' };
+	// active_source 与 current_firmware_source 是两个不同的概念：
+	//   active_source            此刻正在用的源，每次切换都会变
+	//   current_firmware_source  用户认可过的固件来源，只在「首次确认」与
+	//                            「放行跨源并真的刷写」时更新
+	// 因此这里只有**首次**（该字段为空）才顺带写入，之后切源只改 active_source。
+	// 这样「切了源但没有确认」才是可识别的状态：概览页据此要求放行才能刷写。
+	// 存的始终是源段名（ID）——名称、地址、布局都可以改，段名是稳定标识。
+	let first = !length(conf.current_firmware_source);
+
+	if (!uci_write(function (ctx) {
+		ctx.set(CONFIG, 'globals', 'active_source', name);
+		if (first)
+			ctx.set(CONFIG, 'globals', 'current_firmware_source', name);
+		return true;
+	}))
+		return { ok: false, error: 'uci commit 失败。' };
 
 	// 切换源之后，上一源的检测结果必须作废
 	state.clear_last();
@@ -119,17 +157,17 @@ function do_set_options(req) {
 	let webhook = trim(a.webhook ?? conf.webhook);
 
 	if (level < 0 || level > 2)
-		return { ok: false, error: '无人值守档位必须是 0/1/2' };
+		return { ok: false, error: '无人值守档位必须是 0/1/2。' };
 	if (index(config.SCHEDULE_KINDS, kind) < 0)
-		return { ok: false, error: '调度频率必须是 ' + join('、', config.SCHEDULE_KINDS) };
+		return { ok: false, error: '调度频率必须是 ' + join('、', config.SCHEDULE_KINDS) + '。' };
 	if (!match(time, /^([01][0-9]|2[0-3]):[0-5][0-9]$/))
-		return { ok: false, error: '时间必须形如 04:00（24 小时制，HH:MM）' };
+		return { ok: false, error: '时间必须形如 04:00（24 小时制，HH:MM）。' };
 	if (weekday < 1 || weekday > 7)
-		return { ok: false, error: '星期必须是 1-7（1=周一）' };
+		return { ok: false, error: '星期必须是 1-7（1=周一）。' };
 	if (day < 1 || day > 28)
-		return { ok: false, error: '每月号数必须在 1-28 之间（避免 29-31 号在部分月份不触发）' };
+		return { ok: false, error: '每月号数必须在 1-28 之间（避免 29-31 号在部分月份不触发）。' };
 	if (length(webhook) && !match(webhook, /^https?:\/\/.+/))
-		return { ok: false, error: 'webhook 必须是 http(s) 地址或留空' };
+		return { ok: false, error: 'webhook 必须是 http(s) 地址或留空。' };
 
 	if (!uci_write(function (ctx) {
 		ctx.set(CONFIG, 'globals', 'unattended', '' + level);
@@ -140,7 +178,7 @@ function do_set_options(req) {
 		ctx.set(CONFIG, 'globals', 'webhook', webhook);
 		return true;
 	}))
-		return { ok: false, error: 'uci commit 失败' };
+		return { ok: false, error: 'uci commit 失败。' };
 
 	let out = config.load();
 
@@ -156,17 +194,124 @@ function do_set_options(req) {
 	return { ok: true, config: out, schedule: sch };
 }
 
+// ── 更新通道 ────────────────────────────────────────────────────────────────
+
+// 通道列表只能靠 <base>/.versions.json 现取，所以单独开一个只读接口：
+// 界面在渲染选择器时按需调用，不必等一次完整检测（那要先下载 profiles.json）。
+function do_channels(req) {
+	let conf = config.load();
+	let name = arg(req, 'source');
+	let hit = length(name)
+		? filter(conf.sources, function (s) { return s.name == name; })
+		: [];
+	let src = length(name) ? (hit[0] ?? null) : config.active(conf);
+
+	if (src == null)
+		return { ok: false, error: '未知的源：' + name + '。' };
+
+	// default 布局只有一层 targets 目录，通道恒为 current：照常返回它，
+	// 但列表里就这一项，界面据此渲染一个不可更改的只读下拉。
+	if (src.layout == 'default')
+		return {
+			ok: true,
+			source: src.name,
+			layout: src.layout,
+			pinned: config.DEFAULT_CHANNEL,
+			list: [ config.DEFAULT_CHANNEL ],
+			origin: 'layout',
+			stable: '',
+			oldstable: '',
+			locked: true,
+			cached: false
+		};
+
+	let last = state.load_last();
+	let cached = (last?.remote?.source ?? '') == src.name ? (last?.remote?.channels ?? []) : [];
+	let disc = length(cached)
+		? { list: cached, origin: 'cache', stable: last.remote.stable ?? '', oldstable: last.remote.oldstable ?? '' }
+		: source.discover(src, 6);
+
+	let loc = local.identity();
+	let pinned = trim(src.channel ?? '');
+
+	// 语义通道 → 实际目录。解析不出来的通道（源上没有这条线）标 available:false，
+	// 界面据此置灰，而不是让用户选中之后才在检测时报错。
+	let resolved = [];
+	for (let c in config.CHANNELS) {
+		let dir = source.resolve_channel(disc, loc, c);
+		push(resolved, { value: c, dir: dir, available: length(dir) > 0 });
+	}
+
+	return {
+		ok: true,
+		source: src.name,
+		layout: src.layout,
+		pinned: pinned,
+		// 具体目录（旧配置或 CLI 直接指定的）仍原样回显，避免界面显示成「当前通道」
+		pinned_dir: source.resolve_channel(disc, loc, pinned),
+		list: disc.list ?? [],
+		channels: resolved,
+		origin: disc.origin,
+		stable: disc.stable ?? '',
+		oldstable: disc.oldstable ?? '',
+		local_version: loc.version ?? '',
+		locked: false,
+		cached: length(cached) > 0
+	};
+}
+
+// 通道按源存放。空字符串表示「当前通道」，此时直接删掉这个 option，
+// 而不是写一个空值 —— 让 UCI 里只留下真正生效的字段。
+function do_set_channel(req) {
+	let name = arg(req, 'source');
+	let want = trim(arg(req, 'channel'));
+	let conf = config.load();
+	let hit = filter(conf.sources, function (s) { return s.name == name; });
+
+	if (!length(hit))
+		return { ok: false, error: '未知的源：' + name + '。' };
+
+	let src = hit[0];
+
+	// default 布局的通道恒为 current，没有任何可改的余地：
+	// 明确拒绝，而不是假装写成功再悄悄丢掉。
+	if (src.layout != 'official')
+		return { ok: false, error: sprintf('该源是 default 布局（root/targets），通道恒为 %s，不可更改。', config.DEFAULT_CHANNEL) };
+
+	let chan = config.normalize_channel(want, src.layout);
+	if (length(want) && !length(chan))
+		return { ok: false, error: '通道必须是 ' + join('、', filter(config.CHANNELS, function (c) { return length(c); })) + ' 之一，或具体的 snapshots / releases/<版本> 目录。' };
+
+	if (!uci_write(function (ctx) {
+		if (length(chan))
+			ctx.set(CONFIG, name, 'channel', chan);
+		else
+			ctx.delete(CONFIG, name, 'channel');
+		return true;
+	}))
+		return { ok: false, error: 'uci commit 失败。' };
+
+	// 换通道等于换了一份远端数据，上一次的检测结论必须作废，
+	// 否则界面会把上一个通道的判定当成这个通道的。
+	state.clear_last();
+	eventlog.append('warn', 'source', sprintf('源 %s 的更新通道切换为 %s', name, length(chan) ? chan : '当前通道'));
+
+	let out = config.load();
+	return { ok: true, sources: out.sources, active_source: out.active_source, channel: chan };
+}
+
 // ── 自定义源 ────────────────────────────────────────────────────────────────
 
 function source_args(req) {
 	let a = req?.args ?? req ?? {};
-	let layout = trim(a.layout ?? '');
+	let layout = length(trim(a.layout ?? '')) ? config.normalize_layout(trim(a.layout)) : 'official';
 	return {
 		name: trim(a.name ?? ''),
 		label: trim(a.label ?? ''),
 		url: trim(a.url ?? ''),
-		layout: length(layout) ? config.normalize_layout(layout) : 'official',
-		system: trim(a.system ?? '')
+		layout: layout,
+		system: trim(a.system ?? ''),
+		channel: config.normalize_channel(a.channel ?? '', layout)
 	};
 }
 
@@ -217,7 +362,7 @@ function do_source_add(req) {
 	if (!length(inp.name))
 		inp.name = derive_name(inp, conf.sources);
 	else if (length(filter(conf.sources, function (s) { return s.name == inp.name; })))
-		return { ok: false, error: '标识已存在：' + inp.name };
+		return { ok: false, error: '标识已存在：' + inp.name + '。' };
 
 	if (!uci_write(function (ctx) {
 		ctx.set(CONFIG, inp.name, 'source');
@@ -225,9 +370,11 @@ function do_source_add(req) {
 		ctx.set(CONFIG, inp.name, 'url', inp.url);
 		ctx.set(CONFIG, inp.name, 'layout', inp.layout);
 		ctx.set(CONFIG, inp.name, 'system', inp.system);
+		if (length(inp.channel))
+			ctx.set(CONFIG, inp.name, 'channel', inp.channel);
 		return true;
 	}))
-		return { ok: false, error: 'uci commit 失败' };
+		return { ok: false, error: 'uci commit 失败。' };
 
 	state.clear_last();
 	eventlog.append('info', 'source', sprintf('新增源 %s（%s，%s）', inp.name, inp.url, inp.layout));
@@ -243,16 +390,21 @@ function do_source_set(req) {
 	if (length(err))
 		return { ok: false, error: err };
 	if (!length(filter(conf.sources, function (s) { return s.name == inp.name; })))
-		return { ok: false, error: '未知的源：' + inp.name };
+		return { ok: false, error: '未知的源：' + inp.name + '。' };
 
 	if (!uci_write(function (ctx) {
 		ctx.set(CONFIG, inp.name, 'label', inp.label);
 		ctx.set(CONFIG, inp.name, 'url', inp.url);
 		ctx.set(CONFIG, inp.name, 'layout', inp.layout);
 		ctx.set(CONFIG, inp.name, 'system', inp.system);
+		// 布局改成 default 时通道概念消失，顺手把残留的值删掉
+		if (length(inp.channel))
+			ctx.set(CONFIG, inp.name, 'channel', inp.channel);
+		else
+			ctx.delete(CONFIG, inp.name, 'channel');
 		return true;
 	}))
-		return { ok: false, error: 'uci commit 失败' };
+		return { ok: false, error: 'uci commit 失败。' };
 
 	state.clear_last();
 	eventlog.append('info', 'source', sprintf('编辑源 %s（%s）', inp.name, inp.url));
@@ -265,12 +417,12 @@ function do_source_del(req) {
 	let conf = config.load();
 
 	if (!length(filter(conf.sources, function (s) { return s.name == name; })))
-		return { ok: false, error: '未知的源：' + name };
+		return { ok: false, error: '未知的源：' + name + '。' };
 	if (length(conf.sources) <= 1)
-		return { ok: false, error: '至少要保留一个源' };
+		return { ok: false, error: '至少要保留一个源。' };
 
 	if (!uci_write(function (ctx) { ctx.delete(CONFIG, name); return true; }))
-		return { ok: false, error: 'uci commit 失败' };
+		return { ok: false, error: 'uci commit 失败。' };
 
 	let out = config.load();
 
@@ -289,6 +441,8 @@ return {
 		version: { call: function () { return { version: VERSION }; } },
 		status: { call: do_status },
 		sources: { call: do_sources },
+		channels: { args: { source: '' }, call: do_channels },
+		set_channel: { args: { source: '', channel: '' }, call: do_set_channel },
 		schedule_status: { call: function () { return scheduler.status(); } },
 		check: { args: { source: '', channel: '' }, call: do_check },
 		download_status: { call: function () { return download.status(); } },
@@ -306,8 +460,8 @@ return {
 			},
 			call: do_set_options
 		},
-		source_add: { args: { name: '', label: '', url: '', layout: '', system: '' }, call: do_source_add },
-		source_set: { args: { name: '', label: '', url: '', layout: '', system: '' }, call: do_source_set },
+		source_add: { args: { name: '', label: '', url: '', layout: '', system: '', channel: '' }, call: do_source_add },
+		source_set: { args: { name: '', label: '', url: '', layout: '', system: '', channel: '' }, call: do_source_set },
 		source_del: { args: { name: '' }, call: do_source_del },
 		// 无参数：固定返回最近 200 条事件（带参数会踩 ubus 的类型校验，且并无必要）
 		logs: {

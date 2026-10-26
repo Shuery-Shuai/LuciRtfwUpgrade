@@ -2,7 +2,7 @@
 
 // 刷写（M3）：护栏 → 落盘 flash-pending → setsid 起 sysupgrade → 重启后自证结果。
 //
-// 命令只有一种形式：sysupgrade -k -c <镜像绝对路径>
+// 命令只有一种形式：sysupgrade -c -k <镜像绝对路径>
 //   保留配置本来就是默认（官方脚本 export SAVE_CONFIG=1，-n 才关闭）；
 //   -k 把当前已安装包列表写进备份；-c 保留 /etc/ 下所有改动过的文件。
 // sysupgrade 末尾走 ubus call system sysupgrade，命令**不会返回**，设备直接重启，
@@ -95,9 +95,10 @@ function save_state(st) {
 	return res != null;
 }
 
-// force 只放行「跨发行版」这一条护栏。
+// 跨发行版（f）的放行判据：force、或手工路径的持久默认 flash_allow_cross_distro。
 // 自动路径永不使用 force：trigger=auto 时连显式 force 都忽略，
-// 否则定时任务可能把设备刷成另一个发行版；手工路径才吃 flash_allow_cross_distro 这个持久默认。
+// 否则定时任务可能把设备刷成另一个发行版；手工路径才吃那个持久默认。
+// 注意这个持久默认**只**覆盖跨发行版，跨源另见 allow_cross_source()。
 function allow_cross(o, conf) {
 	if (trim(o?.trigger ?? '') == 'auto')
 		return false;
@@ -105,6 +106,41 @@ function allow_cross(o, conf) {
 		return true;
 
 	return util.to_int(conf?.flash_allow_cross_distro, 0) == 1;
+}
+
+// 跨源只认「当场 force」，**不吃** flash_allow_cross_distro 这个持久默认。
+// 那个开关的语义是「我接受换发行版」，与「我接受换来源」不是一回事；
+// 让它顺手放行跨源，等于一次勾选悄悄替用户确认了一个他从没确认过的固件来源。
+function allow_cross_source(o) {
+	if (trim(o?.trigger ?? '') == 'auto')
+		return false;
+
+	return o?.force == true;
+}
+
+// h) 跨源：激活源不是用户确认过的那个源。
+//
+// 与跨源**发行版**（f）是两件事：f 比的是「源所属族 vs 本机发行版」，h 比的是
+// 「这次用哪个源 vs 用户认可的源」。判据是纯粹的段名比较，不需要探测结果。
+//
+// 为什么必须放到后端：界面上原来只在 doSetActive() / 刷写按钮上拦，直接调 ubus
+// 或走 CLI 就能绕过 —— 而 CLI 恰恰是无人值守与脚本最常用的入口。
+//
+// 首次使用（current_firmware_source 为空）不算跨源：那只是还没初始化，由概览页
+// 引导用户去确认，不该让全新安装的 CLI 立刻不可用。
+function cross_source_name(o, conf) {
+	let confirmed = trim(conf?.current_firmware_source ?? '');
+	if (!length(confirmed))
+		return '';
+
+	// 本次实际会用到的源：显式 --source / ubus 参数优先，否则是激活源
+	let want = trim(o?.source ?? '');
+	let name = length(want) ? want : trim(conf?.active_source ?? '');
+
+	if (!length(name) || name == confirmed)
+		return '';
+
+	return name;
 }
 
 // 一次采集：下载器状态、上一次判定、远端探测、本机身份、配置。
@@ -144,8 +180,9 @@ function inspect(o) {
 	return { conf: conf, src: src, loc: loc, dl: dl, last: last, probe: probe };
 }
 
-// 七条阻断项（全部阻断，不是警告）+ 两条不阻断的提示。
-// 顺序固定：先看镜像是否已下载校验（a/b/c），再看该不该刷（d），再看这张镜像能不能刷（e/f），最后看有没有前一次没结案（g）。
+// 八条阻断项（全部阻断，不是警告）+ 两条不阻断的提示。
+// 顺序固定：先看镜像是否已下载校验（a/b/c），再看该不该刷（d），再看这张镜像能不能刷（e/f），
+// 再看来源是不是用户认可的（h），最后看有没有前一次没结案（g）。
 function check_guards(ctx, o) {
 	let errors = [];
 	let warnings = [];
@@ -157,59 +194,69 @@ function check_guards(ctx, o) {
 
 	// a) 下载器没到 verified：镜像要么没下完、要么校验没过
 	if (trim(dl.state ?? '') != 'verified')
-		push(errors, sprintf('镜像未下载或未通过校验（下载状态：%s）', first_text(dl.state, '无')));
+		push(errors, sprintf('镜像未下载或未通过校验（下载状态：%s）。', first_text(dl.state, '无')));
 
 	// b) verified 标记与 sha256 缺一不可：没有 sha256 就没有可比对的依据
 	if (dl.verified != true || !length(trim(dl.sha256 ?? '')))
-		push(errors, '缺少 sha256 校验（verified 标记为假或 sha256 为空）');
+		push(errors, '缺少 sha256 校验（verified 标记为假或 sha256 为空）。');
 
 	// c) 记录的那份镜像必须还在、体积还得对得上。
 	// 镜像名在 download.uc 里已被压成 [A-Za-z0-9._-]，所以这里的 substr 不会切到多字节字符。
 	if (!length(file) || substr(file, 0, 1) != '/') {
-		push(errors, sprintf('镜像文件缺失或体积不符（记录的路径不是绝对路径：%s）', length(file) ? file : '空'));
+		push(errors, sprintf('镜像文件缺失或体积不符（记录的路径不是绝对路径：%s）。', length(file) ? file : '空'));
 	}
 	else if (want <= 0) {
-		push(errors, '镜像文件缺失或体积不符（记录的体积未知）');
+		push(errors, '镜像文件缺失或体积不符（记录的体积未知）。');
 	}
 	else {
 		let got = file_size(file);
 		if (got != want)
-			push(errors, sprintf('镜像文件缺失或体积不符（记录 %d 字节，实际 %d 字节）', want, got));
+			push(errors, sprintf('镜像文件缺失或体积不符（记录 %d 字节，实际 %d 字节）。', want, got));
 	}
 
 	// d) 只允许 update / rebuild 进刷写；其余状态原样报给用户
 	if (vs != 'update' && vs != 'rebuild')
-		push(errors, sprintf('判定状态不是 update/rebuild（当前：%s）', length(vs) ? vs : '无检测结果'));
+		push(errors, sprintf('判定状态不是 update/rebuild（当前：%s）。', length(vs) ? vs : '无检测结果'));
 
 	// e) 候选镜像必须是 sysupgrade 的 squashfs：别的镜像会重写引导链或分区表
 	let img = probe?.image ?? null;
 	if (probe?.ok != true)
-		push(errors, sprintf('不是可刷写的 sysupgrade squashfs 镜像（远端探测失败：%s）', first_text(probe?.error, '未知原因')));
+		push(errors, sprintf('不是可刷写的 sysupgrade squashfs 镜像（远端探测失败：%s）。', first_text(probe?.error, '未知原因')));
 	else if (img == null)
-		push(errors, '不是可刷写的 sysupgrade squashfs 镜像（该 profile 没有 sysupgrade 镜像）');
+		push(errors, '不是可刷写的 sysupgrade squashfs 镜像（该 profile 没有 sysupgrade 镜像）。');
 	else if (img.type != 'sysupgrade' || img.filesystem != 'squashfs')
-		push(errors, sprintf('不是可刷写的 sysupgrade squashfs 镜像（type=%s，filesystem=%s）',
+		push(errors, sprintf('不是可刷写的 sysupgrade squashfs 镜像（type=%s，filesystem=%s）。',
 			first_text(img.type, '?'), first_text(img.filesystem, '?')));
 
 	// f) 跨发行版是「换系统」而不是升级：除非 force（或手工路径的持久默认），一律阻断
 	let cross = filter(probe?.warnings ?? [], function (w) { return match(w ?? '', /跨发行版/) != null; });
 	if (length(cross) && !allow_cross(o, ctx.conf))
-		push(errors, sprintf('%s；只有手工路径能带 force 放行这条护栏', cross[0]));
+		push(errors, sprintf('%s只有手工路径能带 force 放行这条护栏。', cross[0]));
+
+	// h) 跨源：这次要用的源不是用户确认过的那个。只有手工路径能带 force 放行，
+	// 自动路径一律阻断 —— 定时任务不该从用户还没认可的来源刷写。
+	let crossSrc = cross_source_name(o, ctx.conf);
+	if (length(crossSrc) && !allow_cross_source(o)) {
+		push(errors, sprintf(
+			'跨源更换：本次使用的源 %s 不是本机已确认的固件来源 %s。' +
+				'请在设置页把该源设为激活源，或带 force 放行这条护栏。',
+			crossSrc, trim(ctx.conf?.current_firmware_source ?? '?')));
+	}
 
 	// g) 上一次刷写还没结案：先重启让 boot_check 结案，或者 flash-clear 明确放弃
 	let cur = load_state();
 	if (cur != null && cur.state == 'flash-pending')
-		push(errors, sprintf('上一次刷写尚未确认结果（发起于 %s，目标 %s）',
+		push(errors, sprintf('上一次刷写尚未确认结果（发起于 %s，目标 %s）。',
 			iso_or_epoch(cur.started ?? 0), first_text(cur.target_build_id, '?')));
 
 	// ── 以下只提示，不阻断 ────────────────────────────────────────────────
 	if (vs == 'rebuild')
-		push(warnings, '本次判定是 rebuild（同版本、不同构建），不是 update：自动路径不会刷写它');
+		push(warnings, '本次判定是 rebuild（同版本、不同构建），不是 update：自动路径不会刷写它。');
 
 	let rsd = util.to_int(probe?.source_date_epoch, 0);
 	let lsd = util.to_int(ctx.loc?.build_date, 0);
 	if (rsd > 0 && lsd > 0 && rsd < lsd)
-		push(warnings, sprintf('远端 source_date_epoch 较旧（%s，本机 %s）', iso_or_epoch(rsd), iso_or_epoch(lsd)));
+		push(warnings, sprintf('远端 source_date_epoch 较旧（%s，本机 %s）。', iso_or_epoch(rsd), iso_or_epoch(lsd)));
 
 	return { ok: length(errors) == 0, errors: errors, warnings: warnings };
 }
@@ -290,7 +337,7 @@ function start(opts) {
 
 	ensure_dir();
 
-	let inner = sprintf('sysupgrade -k -c %s', util.shquote(file));
+	let inner = sprintf('sysupgrade -c -k %s', util.shquote(file));
 	try {
 		fs.writefile(LOG, sprintf('# %s 发起刷写（%s）：%s\n', iso_or_epoch(st.started), trigger, inner));
 	} catch (e) {

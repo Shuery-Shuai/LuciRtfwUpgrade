@@ -16,6 +16,9 @@ function identity() {
 	return {
 		hostname: util.hostname(),
 		distribution: trim(osr.NAME ?? ''),
+		// os-release 的 ID 是发行版的自报身份（immortalwrt / openwrt），
+		// 比 NAME 的显示名更适合做判断依据。
+		distribution_id: lc(trim(osr.ID ?? '')),
 		model: util.file_trim('/tmp/sysinfo/model'),
 		board_name: util.file_trim('/tmp/sysinfo/board_name'),
 		board_path: board,

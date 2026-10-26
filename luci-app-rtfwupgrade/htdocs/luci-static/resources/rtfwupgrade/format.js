@@ -53,7 +53,9 @@ function callout(tone, title, content) {
 }
 
 // columns 可传 [ '标题', { text: '标题', class: 'rtfw-col-action' }, … ]
-function kvTable(columns, rows) {
+// rows 的每一项是单元格数组；可选 rowClass(row, index) 返回该行的附加类名，
+// 用于让调用方按数据给整行加样式（例如日志按级别着色），而不必自己拼表格。
+function kvTable(columns, rows, rowClass) {
 	function head(c) {
 		return typeof c === 'string' ? { text: c, class: '' } : c;
 	}
@@ -74,10 +76,12 @@ function kvTable(columns, rows) {
 		E(
 			'tbody',
 			{},
-			rows.map(function (r) {
+			rows.map(function (r, ri) {
+				var extra = typeof rowClass === 'function' ? rowClass(r, ri) : '';
+
 				return E(
 					'tr',
-					{},
+					extra ? { class: extra } : {},
 					r.map(function (c, i) {
 						var h = head(columns[i] || '');
 						var cls = ((h.class || '') + (i > 0 ? ' rtfw-mono' : '')).trim();

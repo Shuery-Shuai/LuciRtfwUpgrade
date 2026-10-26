@@ -273,6 +273,40 @@ function cfg_text(allow_cross) {
 	]);
 }
 
+// cfg_text2()：与 cfg_text() 同一批源，但把 globals 写活 ——
+// 用来构造「用户已确认过某个来源」的场景（h 条跨源护栏需要 current_firmware_source）。
+//   confirmed  写进 current_firmware_source 的段名；空串 = 从未确认
+//   active     写进 active_source 的段名
+//   allow      写进 flash_allow_cross_distro（1 = 手工路径默认放行跨发行版）
+function cfg_text2(confirmed, active, allow) {
+	return join('\n', [
+		"config globals 'globals'",
+		"\toption active_source '" + active + "'",
+		(length(confirmed) ? "\toption current_firmware_source '" + confirmed + "'" : ''),
+		"\toption flash_allow_cross_distro '" + (int(allow ?? 0) ? '1' : '0') + "'",
+		"\toption unattended '0'",
+		'',
+		"config source 'unit_plain'",
+		"\toption label 'Unit plain'",
+		"\toption url 'file://" + ROOT + "/remote/plain'",
+		"\toption layout 'default'",
+		"\toption system ''",
+		'',
+		"config source 'unit_openwrt'",
+		"\toption label 'Unit openwrt'",
+		"\toption url 'file://" + ROOT + "/remote/openwrt'",
+		"\toption layout 'default'",
+		"\toption system 'openwrt'",
+		'',
+		"config source 'unit_immortal'",
+		"\toption label 'Unit immortalwrt'",
+		"\toption url 'file://" + ROOT + "/remote/immortal'",
+		"\toption layout 'default'",
+		"\toption system 'immortalwrt'",
+		''
+	]);
+}
+
 // images: 'ok' | 'noimage' | 'badfs'；epoch 控制「远端比本机旧」那条警告
 function set_profiles(images, epoch) {
 	let img = null;
@@ -631,7 +665,7 @@ check('无下载时 a/b/c/d 四项阻断同时命中', length(four) == 4);
 if (length(four) != 4)
 	print('     只命中 ' + sprintf('%J', four) + ' 全部 errors=' + errors_of(g0) + '\n');
 
-// ── 2) 七条阻断项逐条命中 ────────────────────────────────────────────────
+// ── 2) 八条阻断项逐条命中 ────────────────────────────────────────────────
 // a 下载状态不是 verified
 baseline(false);
 put_download({ state: 'failed' });
@@ -713,6 +747,45 @@ put_state({ state: 'flash-pending', started: 1700000000, target_build_id: REMOTE
 blocked('g 条：已存在 flash-pending 时阻断', P_OPT, '上一次刷写尚未确认结果');
 rm(STATE);
 
+// ── 2h) h 条：跨源（这次用的源 != 用户确认过的源）────────────────────────
+//
+// 这条原来只在前端拦（doSetActive / 刷写按钮），直接调 ubus 或走 CLI 都能绕过。
+// 现在下沉到 flash.uc，这里把它锁住：判据是**段名比较**，不依赖探测结果。
+//
+// 用 cfg_text2() 单独构造带 current_firmware_source 的配置，
+// 因为老 cfg_text() 刻意不写该字段（它模拟的是「从未确认」的首次使用状态）。
+baseline(false);
+put(CFG, cfg_text2('unit_plain', 'unit_openwrt'));
+check('h 条基线：确认源 == 激活源时不阻断', (flash.guards(P_OPT) ?? {}).ok == true);
+
+// 显式指定一个与确认源不同的源（模拟 --source 或直接调 ubus 绕过界面）
+blocked('h 条：本次源不是已确认来源时阻断', { source: 'unit_openwrt', channel: 'current' }, '跨源更换');
+
+// 自动路径一律不放行：cron 不该从用户没认可的源刷写
+blocked(
+	'h 条：trigger=auto 时即使 force 也阻断',
+	{ source: 'unit_openwrt', channel: 'current', force: true, trigger: 'auto' },
+	'跨源更换'
+);
+
+// 手工路径带 force 放行
+allowed('h 条：force=true 放行跨源（手工路径）', { source: 'unit_openwrt', channel: 'current', force: true });
+
+// flash_allow_cross_distro 是**跨发行版**的持久默认，不该悄悄放行跨源：
+// 跨源要求的是「当场确认」，所以这里必须仍然阻断。
+put(CFG, cfg_text2('unit_plain', 'unit_openwrt', 1));
+blocked(
+	'h 条：flash_allow_cross_distro=1 不覆盖跨源',
+	{ source: 'unit_openwrt', channel: 'current' },
+	'跨源更换'
+);
+put(CFG, cfg_text2('unit_plain', 'unit_openwrt', 0));
+
+// 首次使用（current_firmware_source 为空）不算跨源：只由概览页引导，不阻断
+put(CFG, cfg_text2('', 'unit_plain'));
+allowed('h 条：从未确认来源时不阻断（首次使用）', { source: 'unit_openwrt', channel: 'current' });
+put(CFG, cfg_text(0));
+
 // ── 3) 两条不阻断的警告 ──────────────────────────────────────────────────
 baseline(false);
 put_verdict('rebuild');
@@ -739,7 +812,7 @@ check('start 护栏不过时不写状态文件（没有记录就不能刷）', r
 check('start 护栏不过时没有启动 sysupgrade（假垫片未被调用）', read(MARK) == null);
 check('start 护栏不过时 flash.log 里没有发起记录', read(FLOG) == null);
 
-// 顺序铁律的正面：落盘 flash-pending → 起进程，且命令只有 -k -c 这一种形态
+// 顺序铁律的正面：落盘 flash-pending → 起进程，且命令只有 -c -k 这一种形态
 baseline(false);
 let started = flash.start(P_OPT) ?? {};
 check('start 护栏通过时返回 ok:true 且状态为 flash-pending', started.ok == true && started.state == 'flash-pending');
@@ -764,20 +837,20 @@ check('pending 的 trigger 为 manual', pending.trigger == 'manual');
 check('pending 的 finished 为 0（尚未结案）', pending.finished == 0);
 check('pending 的 started 已盖上时间戳', pending.started > 0);
 
-// 假垫片：证明真正被执行的是「sysupgrade -k -c <绝对路径>」，且没有 -n
+// 假垫片：证明真正被执行的是「sysupgrade -c -k <绝对路径>」，且没有 -n
 if (!wait_marker()) {
 	check('假 sysupgrade 被调用', false);
 }
 else {
 	let args = shim_args() ?? [];
 	check('假 sysupgrade 收到 3 个参数', length(args) == 3);
-	check('命令形态为 sysupgrade -k -c（保留配置）',
-		length(args) == 3 && args[0] == '-k' && args[1] == '-c');
+	check('命令形态为 sysupgrade -c -k（保留配置）',
+		length(args) == 3 && args[0] == '-c' && args[1] == '-k');
 	check('命令里的镜像路径是绝对路径且与记录一致', length(args) == 3 && args[2] == IMGFILE);
 	check('命令里没有 -n（关掉保留配置）', index(' ' + join(' ', args) + ' ', ' -n ') < 0);
 
 	let flog = read(FLOG) ?? '';
-	check('flash.log 记录了发起行与 sysupgrade -k -c', index(flog, 'sysupgrade -k -c') >= 0);
+	check('flash.log 记录了发起行与 sysupgrade -c -k', index(flog, 'sysupgrade -c -k') >= 0);
 }
 
 flash.clear();

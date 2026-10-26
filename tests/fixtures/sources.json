@@ -1,33 +1,37 @@
 {
-	"active_source": "immortalwrt_official",
+	"active_source": "immortalwrt",
 	"sources": [
 		{
-			"name": "immortalwrt_official",
+			"name": "immortalwrt",
 			"label": "ImmortalWrt 官方",
 			"url": "https://downloads.immortalwrt.org",
 			"layout": "official",
-			"system": ""
+			"system": "",
+			"distribution_id": "immortalwrt"
 		},
 		{
-			"name": "openwrt_official",
+			"name": "openwrt",
 			"label": "OpenWrt 官方",
 			"url": "https://downloads.openwrt.org",
 			"layout": "official",
-			"system": ""
+			"system": "",
+			"distribution_id": "openwrt"
 		},
 		{
 			"name": "rtfw_immortalwrt",
 			"label": "RTFW 聚合站（immortalwrt）",
 			"url": "https://rtfw.shuery.lssa.fun",
 			"layout": "official",
-			"system": "immortalwrt"
+			"system": "immortalwrt",
+			"distribution_id": "immortalwrt"
 		},
 		{
 			"name": "own_build",
 			"label": "自建编译产物",
 			"url": "https://immortalwrt.shuery.lssa.fun",
 			"layout": "default",
-			"system": ""
+			"system": "",
+			"distribution_id": "immortalwrt"
 		}
 	],
 	"unattended": 0,

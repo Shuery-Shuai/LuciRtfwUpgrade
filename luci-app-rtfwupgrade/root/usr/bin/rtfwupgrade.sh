@@ -30,11 +30,11 @@ function usage() {
 	print("  version          版本号\n\n");
 	print("选项:\n");
 	print("  --source <name>  仅本次使用指定源\n");
-	print("  --channel <dir>  仅本次使用指定通道目录（如 releases/25.12.2）\n");
+	print("  --channel <chan> 仅本次使用指定通道（语义值如 stable，或目录如 releases/25.12.2）\n");
 	print("  --json           以 JSON 输出\n");
 	print("  --apply          仅 schedule：把调度写入 crontab\n");
 	print("  --yes            仅 flash：护栏通过时真正刷写\n");
-	print("  --force          仅 flash：放行「跨发行版」这一条护栏\n");
+	print("  --force          仅 flash：放行「跨发行版」与「跨源」两条护栏\n");
 	print("  --boot-check     仅 flash-status：重启后确认刷写结果\n");
 }
 
@@ -202,9 +202,10 @@ function print_status_human(s) {
 
 function print_sources_human(conf) {
 	for (let s in conf.sources) {
-		print(sprintf('%s %-22s %-10s %s\n',
+		print(sprintf('%s %-22s %-10s %s%s\n',
 			(s.name == conf.active_source) ? '*' : ' ',
-			s.name, s.layout, s.url + (length(s.system) ? (' / ' + s.system) : '')));
+			s.name, s.layout, s.url + (length(s.system) ? (' / ' + s.system) : ''),
+			length(s.channel ?? '') ? ('  通道=' + s.channel) : ''));
 	}
 	print(sprintf("激活源  : %s\n", conf.active_source ?? '无'));
 	print(sprintf("无人值守: %d 档（%s）\n", conf.unattended, config.unattended_label(conf.unattended)));
@@ -212,7 +213,7 @@ function print_sources_human(conf) {
 	print(sprintf("定时行  : %s\n", scheduler.cron_line(conf) || '（关闭）'));
 }
 
-// ── 刷写（sysupgrade -k -c）：默认只检查，--yes 才真正刷 ────────────────────
+// ── 刷写（sysupgrade -c -k）：默认只检查，--yes 才真正刷 ────────────────────
 
 function flash_opts(opts) {
 	return {
@@ -236,7 +237,7 @@ function flash_file() {
 
 // 刷写命令只有这一种形式：保留配置本就是默认（-n 才关），-k 记已装包，-c 保留 /etc 改动
 function flash_command(file) {
-	return sprintf('sysupgrade -k -c %s', length(file) ? util.shquote(file) : '<镜像绝对路径>');
+	return sprintf('sysupgrade -c -k %s', length(file) ? util.shquote(file) : '<镜像绝对路径>');
 }
 
 function print_flash_human(g, file) {

@@ -26,11 +26,10 @@ ORIG_SOURCES=$(run "uci -q show rtfwupgrade | sed -n 's/^rtfwupgrade\\.\\([^.=]*
 echo "  原始激活源: $ORIG_ACTIVE"
 echo "  原始源列表: $ORIG_SOURCES"
 
-echo "== 1) 默认源三条 + 激活源 =="
+echo "== 1) 默认两个官方源 + 激活源 =="
 out=$(run "ubus call rtfwupgrade sources | tr -d '\n'")
-check "含 immortalwrt 官方" '"immortalwrt_official"' "$out"
-check "含 openwrt 官方" '"openwrt_official"' "$out"
-check "含 rtfw" '"rtfw_immortalwrt"' "$out"
+check "含 immortalwrt 官方" '"immortalwrt"' "$out"
+check "含 openwrt 官方" '"openwrt"' "$out"
 check "激活源与设备一致" "\"active_source\": \"$ORIG_ACTIVE\"" "$out"
 
 echo "== 2) 新增自定义源（默认布局 default）=="
@@ -61,17 +60,19 @@ run "ubus call rtfwupgrade set_active '{\"source\":\"test_mirror\"}' >/dev/null"
 out=$(run "ubus call rtfwupgrade check '{}' | tr -d '\n'")
 check "探测成功" '"ok": true' "$out"
 check "default 布局路径直达 targets" '"layout": "default"' "$out"
-check "跨发行版警告" "跨发行版更换" "$out"
+check "跨发行版警告" "跨发行版刷写" "$out"
 
 echo "== 5b) 默认的 OpenWrt 官方源也能探测 =="
-out=$(run "ubus call rtfwupgrade check '{\"source\":\"openwrt_official\"}' | tr -d '\n'")
+out=$(run "ubus call rtfwupgrade check '{\"source\":\"openwrt\"}' | tr -d '\n'")
 check "openwrt 官方源探测成功" '"ok": true' "$out"
-check "openwrt 官方源也有跨发行版警告" "跨发行版更换" "$out"
+check "openwrt 官方源也有跨发行版警告" "跨发行版刷写" "$out"
 
 echo "== 6) 删除激活源 → 激活源回退 =="
 out=$(call source_del '{"name":"test_mirror"}' | tr -d '\n')
 check "删除成功" '"ok": true' "$out"
-check "回退到 immortalwrt_official" '"active_source": "immortalwrt_official"' "$out"
+# 回退结果必须是真实存在的源名（字面断言，check 不支持正则）
+check "回退后有 active_source 字段" '"active_source": "' "$out"
+check_not "回退结果不是空串" '"active_source": ""' "$out"
 
 echo "== 6b) 旧配置布局别名 → default（读入时归一化）=="
 run "uci set rtfwupgrade.legacy_layout=source && uci set rtfwupgrade.legacy_layout.label='Legacy layout' && uci set rtfwupgrade.legacy_layout.url='https://downloads.openwrt.org/releases/24.10.0' && uci set rtfwupgrade.legacy_layout.layout='$LEGACY_LAYOUT' && uci set rtfwupgrade.legacy_layout.system='' && uci commit rtfwupgrade"

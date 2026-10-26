@@ -1,0 +1,27 @@
+# markdownlint-cli2 配置（YAML 支持注释；.markdownlint.json 是严格 JSON，不允许注释）
+# 运行：npx -y markdownlint-cli2 "README.md"
+config:
+    default: true
+    MD013:
+        # 与 prettier 的 printWidth: 120 对齐；表格/代码块/标题不折行：
+        # 表格折行会破坏列对齐，代码块折行会改变命令语义（复制粘贴即出错），
+        # 标题折会改变 GitHub 锚点。
+        line_length: 120
+        tables: false
+        code_blocks: false
+        headings: false
+        stern: false
+    MD033:
+        # 原则：能用 markdown 原生语法表达的（徽章、段落、图片）绝不写 HTML。
+        #   - 徽章一律 ![alt](url)，不用 <img>/<p>（连续图片行本来就渲染在同一行）。
+        #
+        # 例外只有一处：README 的「界面预览」要做左一右二的两栏排版。
+        # GitHub 会按 html-pipeline 的白名单过滤 README 里的 HTML ——
+        # style/class/float/position/script/iframe 全被剥掉，只有
+        # <table>/<tr>/<td> 的 width、valign 属性能活下来并表达两栏。
+        # 因此这里必须放行表格布局所需的那几个标签，否则该排版在 GitHub 上会塌成一列。
+        allowed_elements: [br, kbd, sub, sup, table, tr, td, th, b, a, img, details, summary]
+    MD041: false
+    MD024:
+        # 多个章节都可能有「说明」类小标题
+        siblings_only: true

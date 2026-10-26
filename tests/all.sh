@@ -33,6 +33,20 @@ flash_unit() {
 	return "$code"
 }
 
+# 通道解析单元测试：投代码库 + 测试脚本到设备 /tmp，用 -L 指向当前代码跑
+channel_unit() {
+	host="$1"
+	dest=/tmp/rtfwupgrade-channel-lib
+	COPYFILE_DISABLE=1 tar --no-xattrs -C "$ROOT/luci-app-rtfwupgrade/root/usr/share/ucode" -czf - rtfwupgrade \
+		| ssh "$host" "rm -rf '$dest' && mkdir -p '$dest' && tar -xzf - -C '$dest'" || return 1
+	COPYFILE_DISABLE=1 tar --no-xattrs -C "$ROOT/tests" -czf - channel-unit.uc \
+		| ssh "$host" "tar -xzf - -C /tmp" || return 1
+	ssh "$host" "ucode -L '$dest' /tmp/channel-unit.uc"
+	code=$?
+	ssh "$host" "rm -rf '$dest' /tmp/channel-unit.uc"
+	return "$code"
+}
+
 echo "======== 主机侧 ========"
 
 step "版本一致性（Makefile ↔ version.uc）"
@@ -90,6 +104,11 @@ if [ "$HOST" != "-" ]; then
 
 	step "源与设置 CRUD"
 	try sh "$ROOT/tests/sources-crud.sh" "$HOST"
+
+	# 通道解析是纯函数，但它回归过（default 布局的 'current' 曾解析成空串，
+	# 让整条刷写护栏链失效而主机侧测试毫无察觉）。放在设备上跑，图的是有 ucode。
+	step "更新通道解析（单元）"
+	channel_unit "$HOST" || { echo "  ↑ 上一步失败"; fail=1; }
 
 	step "下载状态机（5+1 分支）"
 	try sh "$ROOT/tests/m2-state-machine.sh" "$HOST"

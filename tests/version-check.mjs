@@ -27,4 +27,22 @@ if (pkgVersion !== modVersion) {
 	process.exit(1);
 }
 
+// 视图里写死的 VIEW_VERSION 也要跟上：它用于发现「浏览器在跑旧 JS」。
+// 只改 version.uc 而忘了它，过期检测就会永远报不一致（或永远不报）。
+const viewVersion = fs
+	.readFileSync(path.join(PKG, 'htdocs/luci-static/resources/view/rtfwupgrade/overview.js'), 'utf8')
+	.match(/var VIEW_VERSION = '([^']+)'/)?.[1];
+
+console.log(`overview.js VIEW_VERSION = ${viewVersion}`);
+
+if (!viewVersion) {
+	console.log('\n✗ overview.js 里没解析出 VIEW_VERSION');
+	process.exit(1);
+}
+
+if (viewVersion !== pkgVersion) {
+	console.log('\n✗ 不一致：请把 overview.js 的 VIEW_VERSION 改成与 PKG_VERSION 相同');
+	process.exit(1);
+}
+
 console.log('\n✓ 一致');

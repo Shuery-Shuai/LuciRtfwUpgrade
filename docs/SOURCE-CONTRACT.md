@@ -66,6 +66,10 @@ default    默认编译输出目录结构（root/targets，即 bin/targets 裸�
 直接指向 `bin/targets` 的镜像输出。旧配置中的布局别名只在迁移映射里识别，新配置只写
 `official` / `default`。
 
+通道默认是「当前通道」，也可在源的 `channel` 选项里选定语义通道（`snapshot` / `stable` / `oldstable` / `major` / `minor`）或具体目录（`snapshots` / `releases/<版本>`）。
+钉住的通道不在 `versions_list` 里时，客户端**不会**回落到别的通道，而是照旧按该路径请求并
+把 404 如实报出来 —— 静默回落会给出「来自你没选的通道」的结论。
+
 ## 给 rtfw / immortalwrt.shuery 的对齐要求
 
 1. 目录结构与官方**逐字同构**（不要把版本目录嵌到额外层级，也不要出现 `public/public` 这类嵌套副本）。

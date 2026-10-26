@@ -42,14 +42,14 @@ function compare(local, remote) {
 	};
 
 	if (remote == null || !remote.ok) {
-		out.evidence = (remote?.error ?? '') || '远端探测失败';
+		out.evidence = (remote?.error ?? '') || '远端探测失败。';
 		return out;
 	}
 
 	let lc = out.local.build_id, rc = out.remote.build_id;
 	if (length(lc) && lc == rc) {
 		out.state = 'same';
-		out.evidence = '构建标识一致：' + lc;
+		out.evidence = '构建标识一致：' + lc + '。';
 		out.label = LABELS.same;
 		return out;
 	}
@@ -59,7 +59,7 @@ function compare(local, remote) {
 		let c = util.version_cmp(rv, lv);
 		if (c != null) {
 			out.state = (c > 0) ? 'update' : ((c < 0) ? 'downgrade' : 'rebuild');
-			out.evidence = sprintf('发行版版本：本机 %s → 远端 %s', lv, rv);
+			out.evidence = sprintf('发行版版本：本机 %s → 远端 %s。', lv, rv);
 			out.label = LABELS[out.state];
 			return out;
 		}
@@ -68,12 +68,12 @@ function compare(local, remote) {
 	let ls = out.local.build_date, rs = out.remote.build_date;
 	if (ls && rs) {
 		out.state = (rs > ls) ? 'update' : ((rs < ls) ? 'downgrade' : 'rebuild');
-		out.evidence = sprintf('源码构建时间：本机 %s / 远端 %s', out.local.build_date_iso, out.remote.build_date_iso);
+		out.evidence = sprintf('源码构建时间：本机 %s，远端 %s。', out.local.build_date_iso, out.remote.build_date_iso);
 		out.label = LABELS[out.state];
 		return out;
 	}
 
-	out.evidence = '缺少可比字段（BUILD_ID / OPENWRT_BUILD_DATE）';
+	out.evidence = '缺少可比字段（BUILD_ID / OPENWRT_BUILD_DATE）。';
 	return out;
 }
 

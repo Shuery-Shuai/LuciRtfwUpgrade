@@ -174,10 +174,10 @@ function main() {
 
 	const flashText = read(FLASH);
 
-	// 命令只有一种形态：sysupgrade -k -c <绝对路径>。
+	// 命令只有一种形态：sysupgrade -c -k <绝对路径>。
 	// -n 会关掉保留配置（官方脚本默认 SAVE_CONFIG=1，-n 才清空），
 	// 一旦有人"优化"成 -n，刷完设备的配置就没了 —— 这是最贵的一类回归。
-	expect('flash.uc 含 sysupgrade -k -c', flashText.includes('sysupgrade -k -c'));
+	expect('flash.uc 含 sysupgrade -c -k', flashText.includes('sysupgrade -c -k'));
 	expect(
 		'flash.uc 不含 sysupgrade -n（-n 会丢弃保留配置）',
 		// 注释里出现「-n 才关闭」是说明文字，不算：只在代码行（去掉整行注释）里查
@@ -235,6 +235,55 @@ function main() {
 	// 7) 布局白名单
 	const config = read('luci-app-rtfwupgrade/root/usr/share/ucode/rtfwupgrade/config.uc');
 	expect('布局白名单为 official/default', /LAYOUTS\s*=\s*\[\s*'official'\s*,\s*'default'\s*\]/.test(config));
+
+	// 8) 三页标题样式统一：h2 不能被归一化规则吃掉（否则设置/日志页标题与概览页不一致）
+	const css = read('luci-app-rtfwupgrade/htdocs/luci-static/resources/rtfwupgrade/rtfwupgrade.css');
+	expect('标题归一化只作用于 h3/h4，不含 h2', !/\.rtfw-app h2\s*,/.test(css) && /\.rtfw-app h3,/.test(css));
+	expect('概览页根节点带 rtfw-app（与设置/日志页同一作用域）',
+		read('luci-app-rtfwupgrade/htdocs/luci-static/resources/view/rtfwupgrade/overview.js')
+			.includes("E('div', { class: 'rtfw-app' }"));
+
+	// 9) 行内按钮尺寸统一：添加/高级不得被单独缩小
+	expect('添加/高级按钮不再单独覆盖尺寸', !/\.rtfw-rowbtn-ok,\s*\n\.rtfw-rowbtn-plain/.test(css));
+
+	// 10) 勾选框对齐：Argon 给 label>input[type=checkbox] 加了 top/right 偏移，
+	//     应用内的勾选框必须复位，否则框与文字不在同一水平线。
+	//     同时确认没有用 :has()——现场还有早于其支持起点的浏览器。
+	expect('勾选框 label 使用 .rtfw-check 专用类', /\.rtfw-app \.rtfw-check\s*\{/.test(css));
+	expect('勾选框复位了主题的 position/top/right 偏移',
+		/\.rtfw-check > input\[type='checkbox'\][\s\S]{0,200}position:\s*static/.test(css));
+	const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+	expect('未使用 :has() 选择器（老浏览器不支持）', !/:has\(/.test(cssNoComments));
+
+	// 11b) 说明分组：布局说明与操作说明拆开，对话框里只应出现布局那组
+	const stText = read('luci-app-rtfwupgrade/htdocs/luci-static/resources/view/rtfwupgrade/settings.js');
+	const fnBody = name => {
+		const i = stText.indexOf(name + ': function');
+		if (i < 0) return '';
+		let depth = 0, started = false;
+		for (let j = i; j < stText.length; j++) {
+			if (stText[j] === '{') { depth++; started = true; }
+			else if (stText[j] === '}') { depth--; if (started && depth === 0) return stText.slice(i, j + 1); }
+		}
+		return '';
+	};
+	expect('布局说明与操作说明是两个独立函数',
+		stText.includes('function layoutHelp(') && stText.includes('function actionsHelp('));
+	expect('高级对话框只展示布局说明',
+		fnBody('buildAdvancedForm').includes('layoutHelp()') && !fnBody('buildAdvancedForm').includes('actionsHelp()'));
+	expect('编辑对话框只展示布局说明',
+		fnBody('buildEditForm').includes('layoutHelp()') && !fnBody('buildEditForm').includes('actionsHelp()'));
+	// 注意：不要写成 /E\('tfoot'.../ —— prettier 可能把 E(\n'tfoot', 拆成多行，
+	// 那样断言会因为「排版变了」而失败，而不是因为「说明被删了」。
+	// 这里只认语义：tfoot 存在，且两种说明都出现在它之后的一段窗口里。
+	expect('源表格下方同时展示布局与操作说明',
+		/(['"]tfoot['"])[\s\S]{0,400}layoutHelp\(\)[\s\S]{0,80}actionsHelp\(\)/.test(stText));
+
+	// 11) 工具栏上下外边距必须对称：曾写成 margin: 0.25rem 0 1rem（上 4px、下 16px）
+	const toolbarRule = cssNoComments.match(/\.rtfw-toolbar\s*\{([^}]*)\}/)?.[1] ?? '';
+	const toolbarMargin = toolbarRule.match(/margin:\s*([^;]+);/)?.[1]?.trim() ?? '';
+	expect('工具栏外边距上下对称', !!toolbarMargin && toolbarMargin.split(/\s+/).length === 2,
+		`margin=${JSON.stringify(toolbarMargin)}`);
 
 	console.log(`\n通过 ${passed} 项，失败 ${failed} 项`);
 	process.exit(failed ? 1 : 0);
