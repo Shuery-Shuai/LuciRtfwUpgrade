@@ -81,15 +81,15 @@ CLI（`/usr/bin/rtfwupgrade.sh`）与 rpcd 走**同一套库**，因此界面、
 3. `source.discover()` 取 `<base>/.versions.json`：成功则通道列表 = `snapshots` + 每个 `releases/<ver>`；
    失败则回退 `['snapshots']`；`default` 布局直接返回 `['current']`。
 4. 通道解析分两层，都在 `source.uc`：
-    - `resolve_channel(disc, local, want)`：把**语义值**翻成具体目录。`''`/`current` → 当前通道；
-      `snapshot` → `snapshots`；`stable`/`oldstable` → `releases/<版本>`；`major`/`minor` →
-      按本机版本线取最新；已是 `snapshots` 或 `releases/…` 的原样接受。解析不出就返回空串。
-    - `resolve_for_probe()`：按**源上钉住的 channel + 命令行 override** 组合出最终通道；
-      解析不出来时直接报错，**不回落**到别的通道 —— 回落会给出「来自你没选的通道」的结论。
-      `dir_of(src, channel, local)` 再把它拼成完整 URL 目录（`official` 走 `<base>[/<system>]/<channel>/targets/…`，
-      `default` 走 `<base>[/<system>]/targets/…`）。
-      `channel_origin` 标明来源：`config`（用户钉住）/ `override`（`--channel`）/ `cache` /
-      `.versions.json` / `default` / `layout`，界面在这一行后面加括号显示。
+   - `resolve_channel(disc, local, want)`：把**语义值**翻成具体目录。`''`/`current` → 当前通道；
+     `snapshot` → `snapshots`；`stable`/`oldstable` → `releases/<版本>`；`major`/`minor` →
+     按本机版本线取最新；已是 `snapshots` 或 `releases/…` 的原样接受。解析不出就返回空串。
+   - `resolve_for_probe()`：按**源上钉住的 channel + 命令行 override** 组合出最终通道；
+     解析不出来时直接报错，**不回落**到别的通道 —— 回落会给出「来自你没选的通道」的结论。
+     `dir_of(src, channel, local)` 再把它拼成完整 URL 目录（`official` 走 `<base>[/<system>]/<channel>/targets/…`，
+     `default` 走 `<base>[/<system>]/targets/…`）。
+     `channel_origin` 标明来源：`config`（用户钉住）/ `override`（`--channel`）/ `cache` /
+     `.versions.json` / `default` / `layout`，界面在这一行后面加括号显示。
 5. `source.probe()` 读 `version.buildinfo` 与 `profiles.json`，用 `supported_devices` 匹配 profile
    （回退：`board_name` 的 `,`→`_`），并从 `images[]` 里挑 `type=sysupgrade` + `filesystem=squashfs` 的候选。
 6. `verdict.compare()` 先比身份（`BUILD_ID` vs `version.buildinfo`），再定方向
@@ -145,11 +145,11 @@ flowchart TD
 - **内置只有两个官方源**（`openwrt` / `immortalwrt`，即两个官方下载站），用于演示两种布局。
   聚合站与单版本发布站是设置页「预设」里的模板，只一键填表，**不会自动创建**。
 - 判族（源属于哪个发行版）的三级依据，优先用最可靠的那个：
-    1. `profiles.json` 的 `image_prefix`（构建系统自己写的前缀，最可信）；
-    2. 镜像文件名前缀（`openwrt-` / `immortalwrt-`）；
-    3. 源的 `system` 段与地址（退化手段，仅在前两级都取不到时才用）。
-       判出的族与本机 `os-release` 的 `ID` 不一致时，探测结果附带**跨发行版警告**。
-       三级的实现分别在 `distro_hint()` / `distro_from_image()` 里。
+  1. `profiles.json` 的 `image_prefix`（构建系统自己写的前缀，最可信）；
+  2. 镜像文件名前缀（`openwrt-` / `immortalwrt-`）；
+  3. 源的 `system` 段与地址（退化手段，仅在前两级都取不到时才用）。
+     判出的族与本机 `os-release` 的 `ID` 不一致时，探测结果附带**跨发行版警告**。
+     三级的实现分别在 `distro_hint()` / `distro_from_image()` 里。
 
 ## 跨源与跨发行版：两套独立的判断
 
@@ -255,11 +255,11 @@ JS 模块由 LuCI 的加载器负责，本包无法改写它的 URL，因此升�
 
 - `scheduler.uc` 负责把调度写进 `/etc/crontabs/root` 的**受管标记块**：
 
-    ```text
-    # BEGIN rtfwupgrade (managed block, do not edit)
-    0 4 * * * mkdir -p /tmp/rtfwupgrade && /usr/bin/rtfwupgrade.sh cron >> /tmp/rtfwupgrade/cron.log 2>&1
-    # END rtfwupgrade
-    ```
+  ```text
+  # BEGIN rtfwupgrade (managed block, do not edit)
+  0 4 * * * mkdir -p /tmp/rtfwupgrade && /usr/bin/rtfwupgrade.sh cron >> /tmp/rtfwupgrade/cron.log 2>&1
+  # END rtfwupgrade
+  ```
 
 - 三条安全约定：**只动标记块**（块外的 nginx-util / acme 等原样保留）、写前备份到
   `<crontab>.rtfwupgrade.bak`、内容一致就不写文件也不重启 cron（幂等）。

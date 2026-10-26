@@ -39,15 +39,15 @@
   `attendedsysupgrade`）同构；OpenWrt 的连字符惯例只用于「两个真词之间」
   （`package-manager` / `argon-config` / `ddns-go`），而 `rtfw` 是缩写。
 - 已踩过的坑，别再踩：
-    - 没有 `isNaN()`：用 `n != n` 判定 NaN（`int('abc')` 返回 NaN 且 `type` 是 `double`）。
-    - **函数声明不会提升**：`function a()` 调用后面定义的 `function b()` 会报
-      `access to undeclared variable b` —— 依赖顺序必须是「先定义后使用」。
-    - 没有 `strftime()`：用 `gmtime()` 的字段自己格式化；注意 `mon` 是 **1 基**、日期字段是 `mday`。
-    - `substr()` **按字节**切：中文字符 3 字节，`substr('日一二三', 2, 1)` 会切出半个字（显示成 `�`）。
-      要按字符取内容就用数组映射，别切多字节字符串。
-    - `require()` 不吃绝对路径，也没有 `dofile()`；模块必须放 `/usr/share/ucode/<pkg>/` 并用 dotted require；
-      `-L <dir>` 只对调试/测试有意义。
-    - `fs.popen(cmd, 'r')` + `fp.close()` 取退出码；命令里用 `2>/dev/null` 抑制 stderr。
+  - 没有 `isNaN()`：用 `n != n` 判定 NaN（`int('abc')` 返回 NaN 且 `type` 是 `double`）。
+  - **函数声明不会提升**：`function a()` 调用后面定义的 `function b()` 会报
+    `access to undeclared variable b` —— 依赖顺序必须是「先定义后使用」。
+  - 没有 `strftime()`：用 `gmtime()` 的字段自己格式化；注意 `mon` 是 **1 基**、日期字段是 `mday`。
+  - `substr()` **按字节**切：中文字符 3 字节，`substr('日一二三', 2, 1)` 会切出半个字（显示成 `�`）。
+    要按字符取内容就用数组映射，别切多字节字符串。
+  - `require()` 不吃绝对路径，也没有 `dofile()`；模块必须放 `/usr/share/ucode/<pkg>/` 并用 dotted require；
+    `-L <dir>` 只对调试/测试有意义。
+  - `fs.popen(cmd, 'r')` + `fp.close()` 取退出码；命令里用 `2>/dev/null` 抑制 stderr。
 - 所有远端读取走 `util.http_get()`（内部是设备自带 curl），不要另起下载实现。
 - 读 UCI 前先 `ctx.load(CONFIG)`：rpcd 是常驻进程，显式 reload 才不会被进程内的旧快照骗到。
 - 源只有「存在」与「激活」两种状态，**不要再引入 enabled 之类的中间态**：一个被禁用的源
