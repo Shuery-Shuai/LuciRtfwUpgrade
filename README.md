@@ -434,7 +434,7 @@ node --check luci-app-rtfwupgrade/htdocs/luci-static/resources/view/rtfwupgrade/
 | 入口                                           | 覆盖内容                                                                                                       |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `tests/all.sh`                                 | 汇总入口：版本一致性、i18n、视图渲染、仓库一致性、JS 语法、JSON 合法性、shellcheck，再跑真机部分               |
-| `tests/version-check.mjs`                      | `Makefile` 的 `PKG_VERSION` ↔ `version.uc` ↔ `overview.js` 的 `VIEW_VERSION`（唯一版本来源）                 |
+| `tests/version-check.mjs`                      | `Makefile` 的 `PKG_VERSION` ↔ `version.uc` ↔ `overview.js` 的 `VIEW_VERSION`（唯一版本来源）                   |
 | `tests/i18n-check.mjs`                         | 代码/`menu.d` 用到的 msgid 与 `po/` 一致性（缺翻译即失败）                                                     |
 | `tests/render-check.mjs`                       | 不用浏览器的渲染检查（Node 桩 + 真机 fixture），可抓出 `sprintf is not defined` 这类只在浏览器里暴露的错误     |
 | `tests/consistency-check.mjs`                  | 检查旧标识与旧布局残留、包布局、cron 行、菜单与 lmo 命名、CSS 样式回归（纯静态，无需设备与网络）               |

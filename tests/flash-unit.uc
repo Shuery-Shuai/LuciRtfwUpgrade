@@ -781,9 +781,11 @@ blocked(
 );
 put(CFG, cfg_text2('unit_plain', 'unit_openwrt', 0));
 
-// 首次使用（current_firmware_source 为空）不算跨源：只由概览页引导，不阻断
+// 首次使用（current_firmware_source 为空）不算跨源：只由概览页引导，不阻断。
+// 这里必须用**同族源**（unit_plain，system 为空），否则 f 条跨发行版护栏会把它拦下，
+// 测到的就不是 h 条了 —— 这条曾因此误报，根因在用例构造而不是产品逻辑。
 put(CFG, cfg_text2('', 'unit_plain'));
-allowed('h 条：从未确认来源时不阻断（首次使用）', { source: 'unit_openwrt', channel: 'current' });
+allowed('h 条：从未确认来源时不阻断（首次使用）', { source: 'unit_plain', channel: 'current' });
 put(CFG, cfg_text(0));
 
 // ── 3) 两条不阻断的警告 ──────────────────────────────────────────────────

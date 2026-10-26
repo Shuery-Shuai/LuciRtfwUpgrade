@@ -2,44 +2,94 @@
 
 ## 组件
 
+```mermaid
+flowchart TB
+    subgraph front["前端（浏览器）"]
+        V1["overview.js<br/>概览"]
+        V2["settings.js<br/>设置"]
+        V3["logs.js<br/>日志"]
+    end
+
+    subgraph rpcd["rpcd ucode 对象"]
+        R["rtfwupgrade<br/>ubus 方法"]
+    end
+
+    subgraph lib["共享库（ucode）"]
+        L1["config.uc<br/>UCI 读写"]
+        L2["local.uc<br/>本机标识"]
+        L3["source.uc<br/>发现 · 通道 · 探测"]
+        L4["verdict.uc<br/>判定"]
+        L5["state.uc<br/>/tmp 缓存"]
+        L6["check.uc<br/>检测编排"]
+        L7["download.uc<br/>下载状态机"]
+        L8["flash.uc<br/>护栏 · 四态"]
+        L9["eventlog.uc<br/>事件日志"]
+        L10["scheduler.uc<br/>crontab 受管块"]
+        L11["notify.uc<br/>webhook"]
+        L12["util.uc<br/>HTTP · 时间"]
+        L13["version.uc<br/>版本号"]
+    end
+
+    subgraph cli["CLI"]
+        C["rtfwupgrade.sh"]
+    end
+
+    subgraph boot["开机闭环"]
+        B["/etc/init.d/rtfwupgrade<br/>START=95"]
+    end
+
+    subgraph remote["远端源"]
+        S1["version.buildinfo"]
+        S2["profiles.json"]
+        S3[".versions.json"]
+    end
+
+    V1 --> R
+    V2 --> R
+    V3 --> R
+    R --> lib
+    C --> lib
+    B --> L8
+    L3 --> S1
+    L3 --> S2
+    L3 --> S3
 ```
-LuCI 视图 (JS)                     CLI
-htdocs/.../view/rtfwupgrade/        root/usr/bin/rtfwupgrade.sh
-        │  ubus                        │
-        ▼                              ▼
-rpcd ucode 对象                  同一套库
-root/usr/share/rpcd/ucode/       root/usr/share/ucode/rtfwupgrade/*.uc
-rtfwupgrade                        │
-        └──────────────┬──────────────┘
-                       ▼
-        util.uc（curl 取文本）  local.uc（本机标识）
-        source.uc（源探测）     verdict.uc（判定）  state.uc（/tmp 缓存）
-        check.uc（检测编排 + 事件日志 + 检测 webhook）
-        download.uc（下载状态机）  flash.uc（护栏 + 四态刷写状态机）
-                       │
-                       ▼
-        <源>/…/version.buildinfo、profiles.json、.versions.json
-```
+
+前端只经 rpcd ubus 对象访问后端（ACL：`ubus.rtfwupgrade.*` + `uci.rtfwupgrade`），
+不在前端拼命令，也不给前端任意文件读写权限。
+
+CLI（`/usr/bin/rtfwupgrade.sh`）与 rpcd 走**同一套库**，因此界面、cron、手工命令的
+行为与日志口径一致 —— 不会出现「界面有记录、cron 没有」。
 
 开机闭环另有一条不经过前端的路径：`/etc/init.d/rtfwupgrade`（START=95）→
 `rtfwupgrade.sh flash-status --boot-check` → `flash.boot_check()`，结果回写
 `/etc/rtfwupgrade.flash.json` 并投递刷写 webhook。
 
-前端只经 rpcd ubus 对象访问后端（ACL：`ubus.rtfwupgrade.*` + `uci.rtfwupgrade`），
-不在前端拼命令，也不给前端任意文件读写权限。
+> [!NOTE]
+>
+> 未列入上图的两个辅助模块：`notify.uc`（webhook 投递，被 check/download/flash 调用）与
+> `version.uc`（包版本号，供 `/usr/share/rpcd/ucode` 的 `version` 方法与前端陈旧检测使用）。
 
 ## 数据流（M1 检测）
 
 1. `local.identity()` 读 `/usr/lib/os-release` 与 `/tmp/sysinfo/*` →
    `board_name`、`board_path`（`mediatek/filogic`）、`BUILD_ID`、`OPENWRT_BUILD_DATE`、`version_kind`。
 2. `config.load()` 读 UCI，得到源列表与**唯一激活源**（`active_source` 失效时回退到列表第一条源）。
+   同时读出 `current_firmware_source` —— 用户**认可过**的固件来源，与 `active_source` 是两个字段：
+   前者只在「首次确认」与「放行跨源并真的刷写」时写入（见 `do_set_active` 的 `let first = ...`
+   与 `do_flash` 里的强制刷写分支），后者每次换源都变。
 3. `source.discover()` 取 `<base>/.versions.json`：成功则通道列表 = `snapshots` + 每个 `releases/<ver>`；
    失败则回退 `['snapshots']`；`default` 布局直接返回 `['current']`。
-4. `source.pick_channel()` 选通道：源上选了 `channel` 就按它解析，否则用「当前通道」
-   （snapshot 看 `snapshots`；release 看同版本线的最新 release）。钉住的通道即使已从
-   `.versions.json` 消失也照旧使用，由探测如实报 404，避免悄悄回落到别的通道。
-   `channel_origin` 标明来源：`config`（用户钉住）/ `override`（`--channel`）/ `cache` /
-   `.versions.json` / `default` / `layout`。
+4. 通道解析分两层，都在 `source.uc`：
+    - `resolve_channel(disc, local, want)`：把**语义值**翻成具体目录。`''`/`current` → 当前通道；
+      `snapshot` → `snapshots`；`stable`/`oldstable` → `releases/<版本>`；`major`/`minor` →
+      按本机版本线取最新；已是 `snapshots` 或 `releases/…` 的原样接受。解析不出就返回空串。
+    - `resolve_for_probe()`：按**源上钉住的 channel + 命令行 override** 组合出最终通道；
+      解析不出来时直接报错，**不回落**到别的通道 —— 回落会给出「来自你没选的通道」的结论。
+      `dir_of(src, channel, local)` 再把它拼成完整 URL 目录（`official` 走 `<base>[/<system>]/<channel>/targets/…`，
+      `default` 走 `<base>[/<system>]/targets/…`）。
+      `channel_origin` 标明来源：`config`（用户钉住）/ `override`（`--channel`）/ `cache` /
+      `.versions.json` / `default` / `layout`，界面在这一行后面加括号显示。
 5. `source.probe()` 读 `version.buildinfo` 与 `profiles.json`，用 `supported_devices` 匹配 profile
    （回退：`board_name` 的 `,`→`_`），并从 `images[]` 里挑 `type=sysupgrade` + `filesystem=squashfs` 的候选。
 6. `verdict.compare()` 先比身份（`BUILD_ID` vs `version.buildinfo`），再定方向
@@ -57,6 +107,30 @@ rtfwupgrade                        │
 | `rebuild`      | 同版本、不同构建   | 版本号或源码时间相同但构建标识不同 |
 | `incomparable` | 无法比较           | 探测失败或缺少可比字段             |
 
+判定严格按下列顺序，先命中先返回 —— 顺序本身就是优先级：
+
+```mermaid
+flowchart TD
+    A["开始比较"] --> B{"远端探测成功?"}
+    B -->|否| Z1["incomparable<br/>附失败原因"]
+    B -->|是| C{"两侧 BUILD_ID<br/>非空且相同?"}
+    C -->|是| Z2["same<br/>已是最新"]
+    C -->|否| D{"两侧都不是 SNAPSHOT<br/>且都有版本号?"}
+    D -->|是| E["语义比较 version_cmp"]
+    E --> E1["远端高 → update"]
+    E --> E2["远端低 → downgrade"]
+    E --> E3["相等 → rebuild"]
+    D -->|否| F{"两侧 source_date_epoch<br/>都非 0?"}
+    F -->|是| G["按源码时间比方向"]
+    G --> G1["远端新 → update"]
+    G --> G2["远端旧 → downgrade"]
+    G --> G3["相同 → rebuild"]
+    F -->|否| Z3["incomparable<br/>缺可比字段"]
+```
+
+**明确不使用**：HTTP `Last-Modified`、文件 `mtime`、文件名里的日期。
+这几项反映的是「发布时刻」而非「代码新旧」，见 `SOURCE-CONTRACT.md` 的反面教材。
+
 ## 自定义源
 
 - 源 = UCI 段（`config source '<name>'`），由「设置」页的检测源表格**增删改**。
@@ -68,33 +142,56 @@ rtfwupgrade                        │
   旧配置里的布局别名只在 `config.uc` 的迁移映射里识别，新写入一律用新值。
 - 删除激活源时，回退结果会**写实**回 UCI，避免留下悬空的 `active_source`；
   最后一条源不允许删除。
-- 源与运行系统不同族时（按 `system` 段与地址判族），探测结果附带**跨发行版警告**。
+- **内置只有两个官方源**（`openwrt` / `immortalwrt`，即两个官方下载站），用于演示两种布局。
+  聚合站与单版本发布站是设置页「预设」里的模板，只一键填表，**不会自动创建**。
+- 判族（源属于哪个发行版）的三级依据，优先用最可靠的那个：
+    1. `profiles.json` 的 `image_prefix`（构建系统自己写的前缀，最可信）；
+    2. 镜像文件名前缀（`openwrt-` / `immortalwrt-`）；
+    3. 源的 `system` 段与地址（退化手段，仅在前两级都取不到时才用）。
+       判出的族与本机 `os-release` 的 `ID` 不一致时，探测结果附带**跨发行版警告**。
+       三级的实现分别在 `distro_hint()` / `distro_from_image()` 里。
 
 ## 跨源与跨发行版：两套独立的判断
 
 两者名字接近但判据、时机与作用都不同，不要混为一谈：
 
-|      | 跨源更换（cross-source）                              | 跨发行版刷写（cross-distribution）            |
-| ---- | ----------------------------------------------------- | --------------------------------------------- |
-| 判据 | 激活源所属族 vs **本机发行版**                        | 探测到的源所属族 vs **本机发行版**            |
-| 时机 | 打开页面即可判断，**不需要先检测**                    | 每次检测后写入 `remote.warnings`              |
-| 表现 | 概览页刷写区的红框 + 放行勾选；设置页换源对话框的红框 | 刷写区的橙框 + `force` 勾选；8 条护栏里的 `f` |
-| 后端 | `flash.uc` 的 `allow_cross_source()` 拦（h 条）       | `flash.uc` 的 `allow_cross()` 拦（f 条）      |
-| 放行 | 只认当场 `force`，不吃持久默认                        | `force` 或 `flash_allow_cross_distro`         |
+|      | 跨源更换（cross-source）                                       | 跨发行版刷写（cross-distribution）            |
+| ---- | -------------------------------------------------------------- | --------------------------------------------- |
+| 判据 | **`active_source` vs `current_firmware_source`（纯段名比较）** | 探测到的源所属族 vs **本机发行版**            |
+| 时机 | 打开页面即可判断，**不需要先检测**                             | 每次检测后写入 `remote.warnings`              |
+| 表现 | 概览页刷写区的红框 + 放行勾选；设置页换源对话框                | 刷写区的橙框 + `force` 勾选；8 条护栏里的 `f` |
+| 后端 | `flash.uc` 的 `allow_cross_source()` 拦（h 条）                | `flash.uc` 的 `allow_cross()` 拦（f 条）      |
+| 放行 | 只认当场 `force`，不吃持久默认                                 | `force` 或 `flash_allow_cross_distro`         |
+
+**跨源判据只看两个 UCI 段名，不涉及发行版信息**。这两个字段的语义完全不同：
+
+- `active_source`：此刻正在用的源，每次切换都变。
+- `current_firmware_source`：用户**认可过**的固件来源，只在「首次确认」与
+  「放行跨源并真的刷写」时更新（`do_set_active` 里 `let first = !length(...)` 决定）。
+
+三种状态（`crossSourceState()`）：
+
+| `current_firmware_source` | 与 `active_source` | 状态            | 界面行为                                        |
+| ------------------------- | ------------------ | --------------- | ----------------------------------------------- |
+| 空                        | —                  | `uninitialized` | 黄色引导块 + 三个操作（检测/下载/刷写）弹窗拦截 |
+| 非空                      | 相同               | 无              | 正常                                            |
+| 非空                      | 不同               | `switched`      | 红框 + 放行勾选，未勾选则阻断刷写               |
+
+`uninitialized` 的弹窗**不是拒绝**，只是提醒「还没选定来源」；用户点「仍然继续」可放行，
+本次会话内不再重复询问。这个提醒用回调而非返回 Promise —— 返回 Promise 会让按钮一直停在
+加载态（用户取消后无人 resolve）。
 
 - 概览页刷写区顺序固定为：判定分级提示 → 跨源更换 → 跨发行版刷写 → 此操作不可逆 →
   确认勾选 → 阻断清单 → 刷写按钮。越往下越接近不可逆动作。
-- 跨源状态成立时，探测结果里**必然**也带一条内容相同的跨发行版警告；该句已由跨源块说明，
-  跨发行版块因此只为「跨源不成立」的情况渲染，避免同一件事讲两遍。
-- 跨源拦截**两层都有**：界面层在 `doSetActive()` 未勾选放行时拒绝提交；后端层是 `flash.uc`
-  的 h 条护栏，按「本次要用的源 vs `current_firmware_source`」拦下刷写。只做界面层是不够的 ——
-  直接调 ubus 或走 CLI（`--source`）都能绕过，而 CLI 正是无人值守与脚本最常用的入口。
-  注意 `set_active` 这个 rpcd 方法本身仍不做跨源判断（换源不是刷写，换完不刷就没有风险），
+- 跨发行版警告由 `probe()` 在检测时写入 `remote.warnings`，只有检测之后才有；
+  跨源状态则在**打开页面时**就能算出来，两者时机不同，不能互相替代。
+- 跨源拦截**两层都有**：界面层在 `flashLocalErrors()` 里列出「跨源尚未确认」并禁用刷写按钮；
+  后端层是 `flash.uc` 的 h 条护栏。只做界面层不够 —— 直接调 ubus 或走 CLI（`--source`）
+  都能绕过，而 CLI 正是无人值守与脚本最常用的入口。
+  注意 `set_active` 这个 rpcd 方法**不做**跨源判断（换源不是刷写，换完不刷就没有风险），
   真正的闸在下一次刷写时。
-  （曾有反例：`overview.js` 只把跨发行版的勾选传成 `force`，跨源勾选被丢在前端，
-  于是界面放行了、后端却拿不到放行依据 —— 现已合并成同一个 `force`。）
 - 后端两条护栏只认**一个** `force` 参数，没有区分来源。界面上的两个勾选框因此
-  合并成一个 `force` 传给后端：任一勾选即放行对应那条。
+  合并成一个 `force` 传给后端（`self.flashForce || self.crossSourceOk`），任一勾选即放行对应那条。
 
 ## 更新通道
 
@@ -113,9 +210,11 @@ rtfwupgrade                        │
   但渲染成只读文本并标注「由布局固定」，`set_channel` 对它一律拒绝。
 - 结果区标注**这份结果是哪个源产生的**（`res.source`，不是当前激活源）。两者不一致时
   额外给出警告：切换激活源会作废结果，但历史缓存或命令行 `--source` 都可能留下别的源的结论。
-  设置页切换激活源同样弹窗说明后果（结果作废、构建序列可能不可比、定时任务与自动刷写跟随）。
-- 概览页在切换前弹窗说明三件事：上一次检测结果作废、跨通道构建不可比（可能出现「可降级」）、
+- **通道只在设置页改，概览页只读**。概览页展示当前通道与它的来源（`xxx (config)` /
+  `xxx (.versions.json)` 等），想改就跳设置页 —— 概览页不再有切换控件与弹窗。
+- 设置页改通道时弹窗说明三件事：上一次检测结果作废、跨通道构建不可比（可能出现「可降级」）、
   定时任务与自动刷写同样按这个通道走。确认后才写 UCI，并 `state.clear_last()`。
+  切换**激活源**是另一件事，弹窗说明的是结果作废、新源构建序列可能不可比、定时任务跟随新源。
 - rpcd `channels` 只读接口返回「这个源现有哪些通道」：优先复用上一次检测缓存的
   `channels`，没有缓存才现取 `.versions.json`（6 秒超时），避免开页面就多一次长网络往返。
 - 编辑源时 `settings.js` 会把 `channel` 原样带回 `source_set`：该接口收到空值会删掉这个选项，
@@ -155,11 +254,13 @@ JS 模块由 LuCI 的加载器负责，本包无法改写它的 URL，因此升�
 ## 定时任务落地（M4）
 
 - `scheduler.uc` 负责把调度写进 `/etc/crontabs/root` 的**受管标记块**：
-    ```
+
+    ```text
     # BEGIN rtfwupgrade (managed block, do not edit)
     0 4 * * * mkdir -p /tmp/rtfwupgrade && /usr/bin/rtfwupgrade.sh cron >> /tmp/rtfwupgrade/cron.log 2>&1
     # END rtfwupgrade
     ```
+
 - 三条安全约定：**只动标记块**（块外的 nginx-util / acme 等原样保留）、写前备份到
   `<crontab>.rtfwupgrade.bak`、内容一致就不写文件也不重启 cron（幂等）。
 - 旧版本遗留的标记块（旧应用名/旧 CLI 路径）在同步时先删除，再写入新块，避免同一份 crontab 里
@@ -191,7 +292,7 @@ JS 模块由 LuCI 的加载器负责，本包无法改写它的 URL，因此升�
 
 ## 下载状态机（M2）
 
-```
+```text
 idle ──download──▶ running ──(进程组退出)──▶ verified | failed
                      │
                      └──cancel──▶ cancelled ──download──▶ running（续传，resumed_from>0）
@@ -225,7 +326,7 @@ idle ──download──▶ running ──(进程组退出)──▶ verified |
 
 ## 刷写（M3）
 
-```
+```text
 idle ──flash──▶ flash-pending ──(重启后 BUILD_ID 比对)──▶ boot-confirmed | flash-failed
                     │
                     └──flash-clear（明确放弃）──▶ idle
@@ -239,6 +340,20 @@ idle ──flash──▶ flash-pending ──(重启后 BUILD_ID 比对)──�
 | `flash-pending`  | 已落盘、sysupgrade 已发起（重启前）                       |
 | `boot-confirmed` | 重启后本机 `BUILD_ID` == 状态文件记录的目标构建           |
 | `flash-failed`   | 重启后本机 `BUILD_ID` != 目标（或 sysupgrade 进程没起来） |
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle: 无状态文件
+    idle --> flash_pending: 护栏全过<br/>落盘 + setsid sysupgrade
+    flash_pending --> boot_confirmed: 重启后 BUILD_ID == 目标
+    flash_pending --> flash_failed: 重启后 BUILD_ID != 目标
+    flash_pending --> idle: flash-clear 明确放弃
+    boot_confirmed --> [*]
+    flash_failed --> idle: flash-clear
+```
+
+状态只前进不后退（除 `flash-clear` 显式清空）。`flash-pending` 期间再次刷写会被 `g` 条护栏挡住，
+必须先重启让 `boot_check()` 结案，或明确放弃 —— 否则会出现「上一次结果未知却又发起新刷写」。
 
 读取状态只有 `load_state()` 一个入口：文件被手改坏、JSON 解析失败或 `state` 不在四态里，
 一律按 `idle` 处理，绝不把非法值漏给下游判断。13 个状态字段：`state` `trigger` `source` `channel` `file` `sha256`
