@@ -169,18 +169,18 @@ make package/luci-app-rtfwupgrade/compile V=s
 
 <table>
   <tr>
-    <td width="50%" valign="top">
+    <td width="60%" valign="top">
       <b>概览</b><br/>
       检测结论、候选镜像、下载状态与刷写入口。
-      <a href="docs/assets/overview.jpg"><img src="docs/assets/overview.jpg" alt="概览页" width="100%"/></a>
+      <a href="docs/assets/overview.png"><img src="docs/assets/overview.png" alt="概览页" width="100%"/></a>
     </td>
-    <td width="50%" valign="top">
+    <td width="40%" valign="top">
       <b>设置</b><br/>
       检测源表格（含预设）、更新通道、无人值守档位与定时任务。
-      <a href="docs/assets/settings.jpg"><img src="docs/assets/settings.jpg" alt="设置页" width="100%"/></a>
+      <a href="docs/assets/settings.png"><img src="docs/assets/settings.png" alt="设置页" width="100%"/></a>
       <b>日志</b><br/>
       检测、源、设置与下载事件，最新在前，可按级别与内容筛选。
-      <a href="docs/assets/logs.jpg"><img src="docs/assets/logs.jpg" alt="日志页" width="100%"/></a>
+      <a href="docs/assets/logs.png"><img src="docs/assets/logs.png" alt="日志页" width="100%"/></a>
     </td>
   </tr>
 </table>
