@@ -213,6 +213,15 @@ function main() {
 	expect('init.d 含 START=95', /^START=95$/m.test(initd));
 	expect('init.d 调 flash-status --boot-check', initd.includes('flash-status --boot-check'));
 
+	// postinst 必须重启 rpcd：rpcd 只在启动时 readdir 一次 /usr/share/rpcd/ucode
+	// （ucode.c: rpc_ucode_api_init），没有 inotify 监听。装包写入
+	// usr/share/rpcd/ucode/rtfwupgrade 而 rpcd 不重启，ubus 对象 rtfwupgrade 就不存在，
+	// 整页报「RPC call to rtfwupgrade/status failed with error -32000: Object not found」，
+	// 要等到设备重启才自愈。reload 无效：实测 rpcd 收到 SIGHUP/SIGUSR1 直接退出。
+	const postinst = makefile.split('define Package/luci-app-rtfwupgrade/postinst')[1]?.split('endef')[0] ?? '';
+	expect('postinst 重启 rpcd 以注册 ucode 对象', /\/etc\/init\.d\/rpcd\s+restart/.test(postinst),
+		postinst.trim().slice(0, 140));
+
 	// ACL：漏登记会让 LuCI 界面上按钮点了没反应（ubus 拒绝），而 CLI 却是好的，
 	// 只在网页上复现 —— 所以必须在这里兜住。
 	const acl = JSON.parse(read(ACL))['luci-app-rtfwupgrade'];
