@@ -59,8 +59,16 @@ function walk(dir, out = []) {
 		if (SKIP_DIRS.has(entry.name)) continue;
 
 		const abs = path.join(dir, entry.name);
-		if (entry.isDirectory()) walk(abs, out);
-		else out.push(abs);
+
+		// 用 lstat 分类，不要用 Dirent.isDirectory()：后者按「链接本身」判定，
+		// 指向目录的软链会被当成普通文件推进 out，随后读它就会抛 EISDIR 把整个检查崩掉。
+		// 软链/管道/设备一并跳过 —— 本检查只扫仓库里的真实文本文件，跟链走还会读出
+		// 仓库外面的内容。throwIfNoEntry 兜住 readdir 与 lstat 之间被删掉的竞态。
+		const st = fs.lstatSync(abs, { throwIfNoEntry: false });
+		if (!st) continue;
+
+		if (st.isDirectory()) walk(abs, out);
+		else if (st.isFile()) out.push(abs);
 	}
 	return out;
 }
