@@ -125,10 +125,10 @@ graph TD
 
 ```sh
 # 25.12 / main（apk-tools）
-apk add --allow-untrusted ./luci-app-rtfwupgrade-0.2.0_alpha2-r1.apk
+apk add --allow-untrusted ./luci-app-rtfwupgrade-0.2.1_alpha1-r1.apk
 
 # 24.10（opkg）
-opkg install ./luci-app-rtfwupgrade_0.2.0_alpha2-r1_all.ipk
+opkg install ./luci-app-rtfwupgrade_0.2.1_alpha1-r1_all.ipk
 ```
 
 中文界面需额外装语言包（主包只含代码与配置，`.lmo` 由官方机制单独打包）：

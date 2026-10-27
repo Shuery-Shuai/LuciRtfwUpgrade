@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-rtfwupgrade
-PKG_VERSION:=0.2.0_alpha2
+PKG_VERSION:=0.2.1_alpha1
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPL-2.0-or-later
